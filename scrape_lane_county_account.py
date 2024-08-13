@@ -1,93 +1,212 @@
+import argparse
+from decimal import Decimal
+from itertools import dropwhile
+import logging
 import re
 import sys
 
-from playwright.sync_api import Playwright, sync_playwright, expect
+from playwright.sync_api import (
+    Playwright,
+    sync_playwright,
+    expect,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
-from lcapps import strip
+from lcapps import strip, write_csv, configure_logging
+
+
+def address_2(address: str) -> tuple:
+    """
+    Accept address.
+    Return as a tuple of non-empty lines, with extra whitespace removed.
+    """
+    return tuple(elem.strip() for elem in address.split("\n") if elem.strip())
+
+
+def address_4(address: str) -> tuple:
+    """
+    Accept address.
+    Return as a tuple of lines, with extra whitespace removed.
+    Discard empty lines at beginning and end.
+    """
+
+    def dropunless_and_reverse(iterable) -> list:
+        return list(reversed(list(dropwhile(lambda x: not x, iterable))))
+
+    lines = [elem.strip() for elem in address.split("\n")]
+    return dropunless_and_reverse(dropunless_and_reverse(lines))
+
+
+def money(dollars: str) -> Decimal:
+    """
+    Accept dollars (str).
+    Return as a 100th precision Decimal.
+    """
+    cleaned = dollars.strip().lstrip("$").replace(",", "")
+    return Decimal(cleaned).quantize(Decimal("1.00"))
+
+
+def get_account_row(rows, idx: int, cleaner=strip):
+    return cleaner(rows.nth(idx).locator("td").last.text_content())
+
+
+def get_receipt_entry(row, idx: int, cleaner=strip):
+    return cleaner(row.locator("td").nth(idx).text_content())
+
+
+def get_assessments(rows, idx: int) -> list:
+    return [money(td.text_content()) for td in rows[idx].locator("td").all()]
+
 
 def run(playwright: Playwright, account: str) -> dict:
-    browser = playwright.chromium.launch(headless=False)
+    logging.info("%s: scraping", account)
+    browser = playwright.chromium.launch(headless=True)
     context = browser.new_context()
+    # context.set_default_timeout(100_000)
     page = context.new_page()
     page.goto("https://apps.lanecounty.org/PropertyAccountInformation/")
     page.get_by_placeholder("Enter partial account #").fill(account)
     page.get_by_role("button", name="Save Search").click()
-    page.get_by_role("link", name=account).click()
+    page.get_by_role("link", name=account).first.click()
 
-    account_div = page.locator("div").filter(has=page.get_by_text("Account Information"))
+    account_div = page.locator("div").filter(
+        has=page.get_by_text("Account Information")
+    )
     rows = account_div.locator("tbody").locator("tr")
-    table_map = {
-        0: "account_number",
-        3: "tax_payer",
-        #4: "owner",
-        5: "situs_address",
-        6: "mailing_address",
-        7: "map_and_tax_lot_number",
-        8: "acreage",
-        9: "tca",
-        10: "prop_class",
-    }
+    logging.debug("%s: getting account info", account)
+    site_address, site_city = get_account_row(rows, 5, cleaner=address_2)
+    mailing_address_1, mailing_address_2, mailing_address_3, mailing_city = (
+        get_account_row(rows, 6, cleaner=address_4)
+    )
     account_information = {
-        "account_number": strip(rows.first.locator("td").last.text_content()),
-        "tax_payer": strip(rows.nth(3).locator("td").last.text_content()),
-        "situs_address": strip(rows.nth(5).locator("td").last.text_content()),
-        "mailing_address": strip(rows.nth(6).locator("td").last.text_content()),
-        "map_and_tax_lot_number": strip(rows.nth(7).locator("td").last.text_content()),
-        "acreage": strip(rows.nth(8).locator("td").last.text_content()),
-        "tca": strip(rows.nth(9).locator("td").last.text_content()),
-        "prop_class": strip(rows.nth(10).locator("td").last.text_content()),
+        "account_number": get_account_row(rows, 0),
+        "tax_payer": get_account_row(rows, 3),
+        "situs_address": site_address,
+        "situs_city": site_city,
+        "mailing_address_1": mailing_address_1,
+        "mailing_address_2": mailing_address_2,
+        "mailing_address_3": mailing_address_3,
+        "mailing_city": mailing_city,
+        "map_and_tax_lot_number": get_account_row(rows, 7),
+        "acreage": get_account_row(rows, 8),
+        "tca": get_account_row(rows, 9),
+        "prop_class": get_account_row(rows, 10),
     }
 
-    print(account_information)
-    
-    receipts_table = page.locator("table").filter(has=page.get_by_text("Amount Received"))
-    rows = receipts_table.locator("tbody").locator("tr").all()
-    receipts = [
-        {
-            "date": strip(row.locator("td").nth(0).text_content()),
-            "amount_received": strip(row.locator("td").nth(1).text_content()),
-            "tax": strip(row.locator("td").nth(2).text_content()),
-            "discount": strip(row.locator("td").nth(3).text_content()),
-            "interest": strip(row.locator("td").nth(4).text_content()),
-        }
-        for row in rows
-    ]
-    print(receipts)
+    logging.debug("%s: getting receipts", account)
+    receipts_table = page.locator("table").filter(
+        has=page.get_by_text("Amount Received")
+    )
+    # Some accounts have
+    try:
+        rows = receipts_table.locator("tbody").locator("tr").all()
+        receipts = [
+            {
+                "account_number": account,
+                "date": get_receipt_entry(row, 0),
+                "amount_received": get_receipt_entry(row, 1, cleaner=money),
+                "tax": get_receipt_entry(row, 2, cleaner=money),
+                "discount": get_receipt_entry(row, 3, cleaner=money),
+                "interest": get_receipt_entry(row, 4, cleaner=money),
+            }
+            for row in rows
+        ]
+    except PlaywrightTimeoutError:
+        logging.info("%s: no receipts info", account)
+        try:
+            receipts_table.get_by_text("No records to display").click()
+            receipts = []
+        except:
+            logging.error(
+                "%s: ...but no message saying no records to display", account
+            )
+            raise ValueError("we should see a 'No records to display' here")
 
-    assessments_table = page.locator("table").filter(has=page.get_by_text("Assessed Value")).locator("table")
-    headers = assessments_table.locator("thead").locator("tr").locator("th").all()
-    years = [ int(th.text_content()) for th in headers ]
+    logging.debug("%s: getting assessments", account)
+    assessments_table = (
+        page.locator("table")
+        .filter(has=page.get_by_text("Assessed Value"))
+        .locator("table")
+    )
+    headers = (
+        assessments_table.locator("thead").locator("tr").locator("th").all()
+    )
+    years = [int(th.text_content()) for th in headers]
     rows = assessments_table.locator("tbody").locator("tr").all()
 
-    av = [ td.text_content() for td in rows[0].locator("td").all() ]
-    assessed_values = zip(years, av)
-    print(dict(assessed_values))
+    assessed_values = get_assessments(rows, 0)
+    max_assessed_values = get_assessments(rows, 1)
+    real_market_values = get_assessments(rows, 2)
+    assessments = [
+        {
+            "account_id": account,
+            "year": year,
+            "assessed_value": assessed_values[i],
+            "max_assessed_value": max_assessed_values[i],
+            "real_market_value": real_market_values[i],
+        }
+        for i, year in enumerate(years)
+    ]
 
-    mav = [ td.text_content() for td in rows[1].locator("td").all() ]
-    max_assessed_values = zip(years, mav)
-    print(dict(max_assessed_values))
-
-    rmv = [ td.text_content() for td in rows[1].locator("td").all() ]
-    real_market_values = zip(years, rmv)
-    print(dict(real_market_values))
-    sys.exit()
-
-    page.get_by_role("cell", name="Tax Payer").click()
-    page.get_by_role("cell", name="Situs Address").click()
-    page.get_by_role("cell", name="Mailing Address").click()
-    page.get_by_role("cell", name="Map and Tax Lot #").click()
-    page.get_by_role("cell", name="Acreage").click()
-    page.get_by_role("cell", name="TCA").click()
-    page.get_by_role("cell", name="Prop Class").click()
-    page.get_by_role("heading", name="Remarks").click()
-    page.get_by_text("Recent Receipts - Click here to check for any amounts owing. DateAmount").click()
-    page.get_by_text("Valuation History More").click()
-    page.locator("#ctl00_MainContentPlaceHolder_valuesGrid_ctl00_RowZone1").click()
-
-    # ---------------------
-    context.close()
-    browser.close()
+    return {
+        "account_information": account_information,
+        "receipts": receipts,
+        "assessments": assessments,
+    }
 
 
-with sync_playwright() as playwright:
-    run(playwright, "0156701")
+def get_parser() -> argparse.ArgumentParser:
+    """
+    Return a parser for this script.
+    """
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "-r",
+        "--read-file",
+        help="""
+            File to read accounts from
+            """,
+    )
+    parser.add_argument(
+        "-a",
+        "--account",
+        help="""
+            Account to fetch.
+            """,
+        nargs="*",
+    )
+    return parser
+
+
+def load_file(read):
+    logging.info("reading %s", read)
+    with open(read, "r", encoding="utf8") as source:
+        return [line.strip() for line in source if line.strip()]
+
+
+def main():
+    configure_logging("lane-county-account-scrape.log", "DEBUG")
+    parser = get_parser()
+    args = parser.parse_args()
+    read_file = args.read_file
+    accounts = args.account
+    if not (accounts or read_file):
+        parser.error("we need a read-file or at least one account")
+
+    if not accounts:
+        accounts = []
+    if read_file:
+        accounts += load_file(read_file)
+
+    for account in accounts:
+        with sync_playwright() as playwright:
+            result = run(playwright, account)
+            write_csv("accounts.csv", (result["account_information"],))
+            write_csv("receipts.csv", result["receipts"])
+            write_csv("assessments.csv", result["assessments"])
+
+
+if __name__ == "__main__":
+    main()
