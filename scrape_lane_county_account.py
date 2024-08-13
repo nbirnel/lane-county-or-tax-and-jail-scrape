@@ -67,7 +67,11 @@ def run(playwright: Playwright, account: str) -> dict:
     page.goto("https://apps.lanecounty.org/PropertyAccountInformation/")
     page.get_by_placeholder("Enter partial account #").fill(account)
     page.get_by_role("button", name="Save Search").click()
-    page.get_by_role("link", name=account).first.click()
+    try:
+        page.get_by_role("link", name=account).first.click()
+    except PlaywrightTimeoutError:
+        logging.error("%s: get account link timed out")
+        return {}
 
     account_div = page.locator("div").filter(
         has=page.get_by_text("Account Information")
@@ -203,9 +207,10 @@ def main():
     for account in accounts:
         with sync_playwright() as playwright:
             result = run(playwright, account)
-            write_csv("accounts.csv", (result["account_information"],))
-            write_csv("receipts.csv", result["receipts"])
-            write_csv("assessments.csv", result["assessments"])
+            if result:
+                write_csv("accounts.csv", (result["account_information"],))
+                write_csv("receipts.csv", result["receipts"])
+                write_csv("assessments.csv", result["assessments"])
 
 
 if __name__ == "__main__":
