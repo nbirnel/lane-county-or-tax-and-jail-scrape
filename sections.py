@@ -67,7 +67,7 @@ townships = ranges(
     ]
 )
 
-sections = {
+cities = {
     "alvadore": [
         160534,
         160535,
