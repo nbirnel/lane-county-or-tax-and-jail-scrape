@@ -2,6 +2,7 @@ import argparse
 from decimal import Decimal
 from itertools import dropwhile
 import logging
+import os.path
 
 from playwright.sync_api import (
     Playwright,
@@ -150,7 +151,7 @@ def run(playwright: Playwright, account: str) -> dict:
     ]
 
     return {
-        "account_information": account_information,
+        "accounts": [ account_information ],
         "receipts": receipts,
         "assessments": assessments,
     }
@@ -181,6 +182,14 @@ def custom_parser() -> argparse.ArgumentParser:
                 "nargs": "*",
             },
         },
+        {
+            "args": ["-D", "--destination"],
+            "kwargs": {
+                "help": "Destination directory to place results in.",
+                "default": ".",
+            },
+        },
+
     ]
     return get_parser(*arguments, log=log)
 
@@ -192,6 +201,7 @@ def main():
     configure_logging(args.log, args.log_level)
     read_file = args.read_file
     accounts = args.account
+    dest = args.destination
     if not (accounts or read_file):
         parser.error("we need a read-file or at least one account")
 
@@ -207,12 +217,8 @@ def main():
             with sync_playwright() as playwright:
                 result = run(playwright, account)
                 if result:
-                    write_csv(
-                        "accounts.csv", (result["account_information"],)
-                    )
-                    write_csv("receipts.csv", result["receipts"])
-                    write_csv("assessments.csv", result["assessments"])
-
+                    for key, value in result.items():
+                        write_csv(f"{key}.csv", value, dest=dest)
 
 if __name__ == "__main__":
     main()

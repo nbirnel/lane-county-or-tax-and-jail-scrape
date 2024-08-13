@@ -123,6 +123,7 @@ def custom_parser() -> argparse.ArgumentParser:
             "args": ["-c", "--city"],
             "kwargs": {
                 "help": "City to scrape.",
+                "choices": sections.cities.keys(),
                 "default": "eugene",
             },
         },

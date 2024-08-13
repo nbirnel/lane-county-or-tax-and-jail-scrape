@@ -299,7 +299,7 @@ cities = {
         180214,
         180223,
     ],
-    "junction city": [
+    "junction_city": [
         150429,
         150430,
         150431,
@@ -341,7 +341,7 @@ cities = {
         160213,
         160224,
     ],
-    "mckenzie bridge": [
+    "mckenzie_bridge": [
         165513,
         165514,
         165523,
@@ -368,7 +368,7 @@ cities = {
         213521,
         213522,
     ],
-    "pleasant hill": [
+    "pleasant_hill": [
         180228,
         180229,
         180233,
@@ -422,7 +422,7 @@ cities = {
     "trent": [
         190201,
     ],
-    "triangle lake": [
+    "triangle_lake": [
         160717,
         160718,
         160719,

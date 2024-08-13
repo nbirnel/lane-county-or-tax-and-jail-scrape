@@ -29,14 +29,18 @@ def strip(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
-def write_csv(output, rows: iter):
+def write_csv(output, rows: iter, dest=""):
     """
     Accept output, rows (iter of dicts).
     Write or append to a csv.
     """
     if not rows:
         return
+    logging.debug("writing %d lines to %s", len(rows), output)
     fieldnames = rows[0].keys()
+    if dest:
+        os.makedirs(dest, exist_ok=True)
+        output = os.path.join(dest, output)
     with open(output, "a", encoding="utf8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         if os.stat(output).st_size == 0:
