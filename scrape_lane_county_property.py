@@ -1,15 +1,12 @@
 import argparse
-import csv
 from itertools import chain
 import logging
-import os
-import os.path
 import re
 from time import sleep
 
 from playwright.sync_api import Playwright, sync_playwright
 
-from lcapps import strip, configure_logging, write_csv
+from lcapps import strip, configure_logging, write_csv, get_parser, log_name
 import sections
 
 
@@ -115,46 +112,36 @@ def run(playwright: Playwright, prefix: int, headless=True) -> list:
     page.get_by_role("menuitem", name="Search by Map and Taxlot").click()
     return search(page, prefix)
 
-def get_parser() -> argparse.ArgumentParser:
+
+def custom_parser() -> argparse.ArgumentParser:
     """
-    Return a parser for this script.
+    Return a parser for this script
     """
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        help="""
-            File to write results to.
-            """,
-        default="lane-count-property.csv",
-    )
-    parser.add_argument(
-        "-c",
-        "--city",
-        help="""
-            City to scrape.
-            """,
-        choices=list(sections.cities.keys()),
-        default="eugene",
-        required=True,
-    )
-    parser.add_argument(
-        "-d",
-        "--dry-run",
-        help="""
-            Do not scrape; merely print the sections which would be scraped.
-            """,
-        action="store_true",
-    )
-    return parser
+    log = log_name(__file__)
+    arguments = [
+        {
+            "args": ["-c", "--city"],
+            "kwargs": {
+                "help": "City to scrape.",
+                "default": "eugene",
+            },
+        },
+        {
+            "args": ["-o", "--output"],
+            "kwargs": {
+                "help": "File to write results to.",
+                "default": "lane-county-property.csv",
+            },
+        },
+    ]
+    return get_parser(*arguments, log=log)
+
 
 def main():
-    configure_logging("lane-county-property-scrape.log", "INFO")
-
-    parser = get_parser()
+    parser = custom_parser()
     args = parser.parse_args()
+
+    configure_logging(args.log, args.log_level)
 
     for section in sections.cities[args.city]:
         if args.dry_run:
@@ -165,7 +152,9 @@ def main():
                 if (number_of_results := len(results)) >= 1:
                     write_csv(args.output, results)
                 logging.info(
-                    "%d SECTION: %d total items found", section, number_of_results
+                    "%d SECTION: %d total items found",
+                    section,
+                    number_of_results,
                 )
 
 

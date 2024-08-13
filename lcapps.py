@@ -1,3 +1,4 @@
+import argparse
 import csv
 import logging
 import os
@@ -41,3 +42,51 @@ def write_csv(output, rows: iter):
         if os.stat(output).st_size == 0:
             writer.writeheader()
         writer.writerows(rows)
+
+
+def get_parser(*args, **kwargs) -> argparse.ArgumentParser:
+    """
+    Accept args (a list of arguments to insert before universal args),
+    and kwargs.
+    """
+    log = kwargs.get("log", "lcapp.log")
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    for arg in args:
+        parser.add_argument(*arg["args"], **arg["kwargs"])
+    parser.add_argument(
+        "-l",
+        "--log",
+        help="""
+            File to log to.
+            """,
+        default=log,
+    )
+    parser.add_argument(
+        "-L",
+        "--log-level",
+        help="""
+            Log level. 
+            """,
+        default="INFO",
+        choices=["NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    )
+    parser.add_argument(
+        "-d",
+        "--dry-run",
+        help="""
+            Do not scrape; merely print what would be scraped.
+            """,
+        action="store_true",
+    )
+    return parser
+
+
+def log_name(script):
+    """
+    Accept script (path).
+    Return the basename, with the file extension changed to ".log".
+    """
+    basename = os.path.basename(script)
+    return f"{os.path.splitext(basename)[0]}.log"

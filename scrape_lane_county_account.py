@@ -2,17 +2,14 @@ import argparse
 from decimal import Decimal
 from itertools import dropwhile
 import logging
-import re
-import sys
 
 from playwright.sync_api import (
     Playwright,
     sync_playwright,
-    expect,
     TimeoutError as PlaywrightTimeoutError,
 )
 
-from lcapps import strip, write_csv, configure_logging
+from lcapps import strip, write_csv, configure_logging, get_parser, log_name
 
 
 def address_2(address: str) -> tuple:
@@ -120,11 +117,11 @@ def run(playwright: Playwright, account: str) -> dict:
         try:
             receipts_table.get_by_text("No records to display").click()
             receipts = []
-        except:
+        except PlaywrightTimeoutError as exc:
             logging.error(
-                "%s: ...but no message saying no records to display", account
+                "%s: Did not see 'No records to display'", account
             )
-            raise ValueError("we should see a 'No records to display' here")
+            raise ValueError("Did not see 'No records to display'") from exc
 
     logging.debug("%s: getting assessments", account)
     assessments_table = (
@@ -159,41 +156,40 @@ def run(playwright: Playwright, account: str) -> dict:
     }
 
 
-def get_parser() -> argparse.ArgumentParser:
-    """
-    Return a parser for this script.
-    """
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        "-r",
-        "--read-file",
-        help="""
-            File to read accounts from
-            """,
-    )
-    parser.add_argument(
-        "-a",
-        "--account",
-        help="""
-            Account to fetch.
-            """,
-        nargs="*",
-    )
-    return parser
-
-
 def load_file(read):
     logging.info("reading %s", read)
     with open(read, "r", encoding="utf8") as source:
         return [line.strip() for line in source if line.strip()]
 
 
+def custom_parser() -> argparse.ArgumentParser:
+    """
+    Return a parser for this script.
+    """
+    log = log_name(__file__)
+    arguments = [
+        {
+            "args": ["-r", "--read-file"],
+            "kwargs": {
+                "help": "File to read accounts from.",
+            },
+        },
+        {
+            "args": ["-a", "--account"],
+            "kwargs": {
+                "help": "Account to fetch.",
+                "nargs": "*",
+            },
+        },
+    ]
+    return get_parser(*arguments, log=log)
+
+
 def main():
-    configure_logging("lane-county-account-scrape.log", "DEBUG")
-    parser = get_parser()
+    parser = custom_parser()
     args = parser.parse_args()
+
+    configure_logging(args.log, args.log_level)
     read_file = args.read_file
     accounts = args.account
     if not (accounts or read_file):
@@ -205,12 +201,17 @@ def main():
         accounts += load_file(read_file)
 
     for account in accounts:
-        with sync_playwright() as playwright:
-            result = run(playwright, account)
-            if result:
-                write_csv("accounts.csv", (result["account_information"],))
-                write_csv("receipts.csv", result["receipts"])
-                write_csv("assessments.csv", result["assessments"])
+        if args.dry_run:
+            print(account)
+        else:
+            with sync_playwright() as playwright:
+                result = run(playwright, account)
+                if result:
+                    write_csv(
+                        "accounts.csv", (result["account_information"],)
+                    )
+                    write_csv("receipts.csv", result["receipts"])
+                    write_csv("assessments.csv", result["assessments"])
 
 
 if __name__ == "__main__":

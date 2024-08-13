@@ -1,5 +1,3 @@
-from itertools import chain
-
 """
 Lane County is divided by the Willamette Meridian. Ranges that are
 west of the Willamette Meridian are 2 digit numbers that start at 01
@@ -18,6 +16,8 @@ section NN
 
 TTRRSS46
 """
+from itertools import chain
+
 
 
 def ranges(raw: list) -> list:
