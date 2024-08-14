@@ -16,8 +16,8 @@ section NN
 
 TTRRSS46
 """
-from itertools import chain
 
+from itertools import chain
 
 
 def ranges(raw: list) -> list:
