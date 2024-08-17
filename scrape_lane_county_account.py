@@ -8,6 +8,7 @@ from decimal import Decimal
 from itertools import dropwhile
 import logging
 import re
+from time import sleep
 
 from playwright.sync_api import (
     Playwright,
@@ -18,7 +19,7 @@ from playwright.sync_api import (
 from lcapps import strip, write_csv, configure_logging, get_parser, log_name
 
 
-def address_2(address: str) -> tuple:
+def clean_address_2(address: str) -> tuple:
     """
     Accept 2 line situs address.
     Return as a tuple of non-empty lines, with extra whitespace removed.
@@ -26,7 +27,7 @@ def address_2(address: str) -> tuple:
     return tuple(elem.strip() for elem in address.split("\n") if elem.strip())
 
 
-def address_4(address: str) -> tuple:
+def clean_address_4(address: str) -> tuple:
     """
     Accept 4 line mailing address.
     Return as a tuple of lines, with extra whitespace removed.
@@ -40,7 +41,15 @@ def address_4(address: str) -> tuple:
     return dropunless_and_reverse(dropunless_and_reverse(lines))
 
 
-def money(dollars: str) -> Decimal:
+def clean_more(entry: str) -> str:
+    """
+    "Located on" and "Related to" fields have "More..." appended to them.
+    Accept entry, and return it with "More..." removed
+    """
+    return strip(entry).removesuffix("More...").strip()
+
+
+def clean_money(dollars: str) -> Decimal:
     """
     Accept dollars (str).
     Return as a 100th precision Decimal.
@@ -48,23 +57,28 @@ def money(dollars: str) -> Decimal:
     prestripped = dollars.strip()
     # negative amounts are represented with parentheses around them:
     # -$12.01 is ($12.01)
-    m = re.match("\((\$[0-9.]+)\)", prestripped)
+    m = re.match(r"\((\$[0-9.]+)\)", prestripped)
     if m:
-        precleaned = m.groups[0]
+        prestripped = m.groups[0]
         sign = -1
     else:
         sign = 1
 
-    cleaned = precleaned.strip().lstrip("$").replace(",", "")
+    cleaned = prestripped.strip().lstrip("$").replace(",", "")
     return Decimal(cleaned).quantize(Decimal("1.00")) * sign
 
 
-def get_account_row(rows, idx: int, cleaner=strip):
+def get_account_row(rows, label: str, cleaner=strip):
     """
-    Accept rows, idx (int), optional cleaner (default strip).
-    Return cleaned text from the last element of row at index idx.
+    Accept rows, label, optional cleaner (default strip).
+    Return cleaned text from the last element of row starting with label.
     """
-    return cleaner(rows.nth(idx).locator("td").last.text_content())
+    try:
+        return cleaner(
+            rows.filter(has_text=label).locator("td").last.text_content()
+        )
+    except PlaywrightTimeoutError:
+        return ""
 
 
 def get_account_info(page, account) -> dict:
@@ -78,24 +92,32 @@ def get_account_info(page, account) -> dict:
     )
     rows = account_div.locator("tbody").locator("tr")
     # This failed on 0173839
-    site_address, site_city = get_account_row(rows, 5, cleaner=address_2)
+    site_address, site_city = get_account_row(
+        rows, "Situs Address", cleaner=clean_address_2
+    )
     mailing_address_1, mailing_address_2, mailing_address_3, mailing_city = (
-        get_account_row(rows, 6, cleaner=address_4)
+        get_account_row(rows, "Mailing Address", cleaner=clean_address_4)
     )
     logging.debug("%s: got account info", account)
     return {
-        "account_number": get_account_row(rows, 0),
-        "tax_payer": get_account_row(rows, 3),
+        "account_number": get_account_row(rows, "Account Number"),
+        "related_to_accounts": get_account_row(
+            rows, "Related to Account(s)", cleaner=clean_more
+        ),
+        "located_on_account": get_account_row(
+            rows, "Located on Account", cleaner=clean_more
+        ),
+        "tax_payer": get_account_row(rows, "Tax Payer"),
         "situs_address": site_address,
         "situs_city": site_city,
         "mailing_address_1": mailing_address_1,
         "mailing_address_2": mailing_address_2,
         "mailing_address_3": mailing_address_3,
         "mailing_city": mailing_city,
-        "map_and_tax_lot_number": get_account_row(rows, 7),
-        "acreage": get_account_row(rows, 8),
-        "tca": get_account_row(rows, 9),
-        "prop_class": get_account_row(rows, 10),
+        "map_and_tax_lot_number": get_account_row(rows, "Map and Tax Lot #"),
+        "acreage": get_account_row(rows, "Acreage"),
+        "tca": get_account_row(rows, "TCA"),
+        "prop_class": get_account_row(rows, "Prop Class"),
     }
 
 
@@ -123,10 +145,12 @@ def get_receipts(page, account) -> list:
             {
                 "account_number": account,
                 "date": get_receipt_entry(row, 0),
-                "amount_received": get_receipt_entry(row, 1, cleaner=money),
-                "tax": get_receipt_entry(row, 2, cleaner=money),
-                "discount": get_receipt_entry(row, 3, cleaner=money),
-                "interest": get_receipt_entry(row, 4, cleaner=money),
+                "amount_received": get_receipt_entry(
+                    row, 1, cleaner=clean_money
+                ),
+                "tax": get_receipt_entry(row, 2, cleaner=clean_money),
+                "discount": get_receipt_entry(row, 3, cleaner=clean_money),
+                "interest": get_receipt_entry(row, 4, cleaner=clean_money),
             }
             for row in rows
         ]
@@ -147,7 +171,9 @@ def get_assesments_row(rows, idx: int) -> list:
     Accept rows, idx (int).
     Return assesment values for row at index idx.
     """
-    return [money(td.text_content()) for td in rows[idx].locator("td").all()]
+    return [
+        clean_money(td.text_content()) for td in rows[idx].locator("td").all()
+    ]
 
 
 def get_assessments(page, account) -> list:
@@ -167,10 +193,15 @@ def get_assessments(page, account) -> list:
     years = [int(th.text_content()) for th in headers]
     rows = assessments_table.locator("tbody").locator("tr").all()
 
-    assessed_values = get_assesments_row(rows, 0)
-    max_assessed_values = get_assesments_row(rows, 1)
-    real_market_values = get_assesments_row(rows, 2)
-    logging.debug("%s: got assessments", account)
+    try:
+        assessed_values = get_assesments_row(rows, 0)
+        max_assessed_values = get_assesments_row(rows, 1)
+        real_market_values = get_assesments_row(rows, 2)
+        logging.debug("%s: got assessments", account)
+    except IndexError:
+        logging.warning("%s: no assessments", account)
+        return []
+
     return [
         {
             "account_id": account,
