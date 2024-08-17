@@ -7,6 +7,7 @@ import argparse
 from decimal import Decimal
 from itertools import dropwhile
 import logging
+import re
 
 from playwright.sync_api import (
     Playwright,
@@ -19,7 +20,7 @@ from lcapps import strip, write_csv, configure_logging, get_parser, log_name
 
 def address_2(address: str) -> tuple:
     """
-    Accept address.
+    Accept 2 line situs address.
     Return as a tuple of non-empty lines, with extra whitespace removed.
     """
     return tuple(elem.strip() for elem in address.split("\n") if elem.strip())
@@ -27,7 +28,7 @@ def address_2(address: str) -> tuple:
 
 def address_4(address: str) -> tuple:
     """
-    Accept address.
+    Accept 4 line mailing address.
     Return as a tuple of lines, with extra whitespace removed.
     Discard empty lines at beginning and end.
     """
@@ -44,8 +45,18 @@ def money(dollars: str) -> Decimal:
     Accept dollars (str).
     Return as a 100th precision Decimal.
     """
-    cleaned = dollars.strip().lstrip("$").replace(",", "")
-    return Decimal(cleaned).quantize(Decimal("1.00"))
+    prestripped = dollars.strip()
+    # negative amounts are represented with parentheses around them:
+    # -$12.01 is ($12.01)
+    m = re.match("\((\$[0-9.]+)\)", prestripped)
+    if m:
+        precleaned = m.groups[0]
+        sign = -1
+    else:
+        sign = 1
+
+    cleaned = precleaned.strip().lstrip("$").replace(",", "")
+    return Decimal(cleaned).quantize(Decimal("1.00")) * sign
 
 
 def get_account_row(rows, idx: int, cleaner=strip):
