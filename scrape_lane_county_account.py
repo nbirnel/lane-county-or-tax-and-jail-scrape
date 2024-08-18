@@ -274,6 +274,7 @@ def get_residential_building(page, taxlot) -> dict:
         page.locator('table:below(:text("Residential"))')
         .locator("table")
         .locator("tr", has_text="Year Built")
+        .first
     )
     try:
         expect(year_tr).to_be_visible()
