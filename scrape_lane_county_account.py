@@ -333,13 +333,8 @@ def get_commercial_building(page, building, taxlot) -> dict:
     page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return dict of information about the building.
     """
-    building_label = building.text_content()
-    description = (
-        page.locator(f"h4:below(:text('{building_label}'))")
-        .first.text_content()
-        .strip()
-    )
-    tbody = page.locator(f"tbody:below(:text('{building_label}'))").first
+    description = building.text_content().strip()
+    tbody = page.locator(f"tbody:below(:text('{description}'))").first
     stats, sq_ft = tbody.get_by_role("table").all()
 
     stats_rows = stats.get_by_role("row")
@@ -389,11 +384,7 @@ def get_commercial_improvements(page, taxlot) -> list:
         ).to_be_visible()
         return []
     except AssertionError:
-        building_headers = (
-            page.locator("h3:below(:text('Commercial Improvements'))")
-            .filter(has_text=re.compile(r"Building\s"))
-            .all()
-        )
+        building_headers = page.locator(f"h4:below(:text('Commercial Improvements'))").all()
         return [
             get_commercial_building(page, building, taxlot)
             for building in building_headers
