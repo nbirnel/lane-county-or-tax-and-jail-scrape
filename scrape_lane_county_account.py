@@ -249,6 +249,14 @@ def get_structure(tbody, structure) -> str:
     return cell.text_content().strip()
 
 
+def get_manufactured_home_item(cells, idx: int) -> str:
+    """
+    Accept cells (row tds), index idx.
+    Return stripped text from that cell.
+    """
+    return cells.nth(idx).text_content().strip()
+
+
 def get_residential_building(page, taxlot) -> dict:
     """
     Accept page.
@@ -300,13 +308,42 @@ def get_residential_building(page, taxlot) -> dict:
             "attached_garage": get_structure(structures_tbody, "Att Garage"),
             "detached_garage": get_structure(structures_tbody, "Det Garage"),
             "attached_carport": get_structure(structures_tbody, "Att Carport"),
+            "manufactured": "false",
+            "manufactured_model_year": "N/A",
+            "manufactured_make": "N/A",
+            "manufactured_plate": "N/A",
+            "manufactured_lois": "N/A",
         }
     except AssertionError:
         try:
             manufactured_structure = page.get_by_text("Manufactured Structure")
             expect(manufactured_structure).to_be_visible()
             logging.warning("%s: manufactured building", taxlot)
-            return {}
+            tbody = page.locator(f"tbody:below(:text('Manufactured Structure'))").first
+            cells = tbody.locator("tr").last.locator("td")
+            return {
+                "taxlot": taxlot,
+                "year_built": 'N/A',
+                "basement_floor_base": "0",
+                "basement_floor_finished": "0",
+                "first_floor_base": "0",
+                "first_floor_finished": "0",
+                "second_floor_base": "0",
+                "second_floor_finished": "0",
+                "attic_floor_base": "0",
+                "attic_floor_finished": "0",
+                "total_floor_base": "0",
+                "total_floor_finished": "0",
+                "basement_garage": "N/A",
+                "attached_garage": "N/A",
+                "detached_garage": "N/A",
+                "attached_carport": "N/A",
+                "manufactured": "true",
+                "manufactured_model_year": get_manufactured_home_item(cells, 0),
+                "manufactured_make": get_manufactured_home_item(cells, 1),
+                "manufactured_plate": get_manufactured_home_item(cells, 2),
+                "manufactured_lois": get_manufactured_home_item(cells, 3),
+            }
         except AssertionError:
             logging.error("%s: unknown residential building", taxlot)
             return {}
