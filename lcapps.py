@@ -84,6 +84,14 @@ def get_parser(*args, **kwargs) -> argparse.ArgumentParser:
             """,
         action="store_true",
     )
+    parser.add_argument(
+        "-H",
+        "--no-headless",
+        help="""
+            Do not run headless.
+            """,
+        action="store_true",
+    )
     return parser
 
 

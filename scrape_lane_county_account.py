@@ -8,10 +8,13 @@ from decimal import Decimal
 from itertools import dropwhile
 import logging
 import re
+
+import sys
 from time import sleep
 
 from playwright.sync_api import (
     Playwright,
+    expect,
     sync_playwright,
     TimeoutError as PlaywrightTimeoutError,
 )
@@ -92,10 +95,10 @@ def get_account_info(page, account) -> dict:
     )
     rows = account_div.locator("tbody").locator("tr")
     # This failed on 0173839
-    site_address, site_city = get_account_row(
+    site_address, site_city_state_zip = get_account_row(
         rows, "Situs Address", cleaner=clean_address_2
     )
-    mailing_address_1, mailing_address_2, mailing_address_3, mailing_city = (
+    m_address_1, m_address_2, m_address_3, m_city_state_zip = (
         get_account_row(rows, "Mailing Address", cleaner=clean_address_4)
     )
     logging.debug("%s: got account info", account)
@@ -109,11 +112,11 @@ def get_account_info(page, account) -> dict:
         ),
         "tax_payer": get_account_row(rows, "Tax Payer"),
         "situs_address": site_address,
-        "situs_city": site_city,
-        "mailing_address_1": mailing_address_1,
-        "mailing_address_2": mailing_address_2,
-        "mailing_address_3": mailing_address_3,
-        "mailing_city": mailing_city,
+        "situs_city_state_zip": site_city_state_zip,
+        "mailing_address_1": m_address_1,
+        "mailing_address_2": m_address_2,
+        "mailing_address_3": m_address_3,
+        "mailing_city_state_zip": m_city_state_zip,
         "map_and_tax_lot_number": get_account_row(rows, "Map and Tax Lot #"),
         "acreage": get_account_row(rows, "Acreage"),
         "tca": get_account_row(rows, "TCA"),
@@ -213,14 +216,147 @@ def get_assessments(page, account) -> list:
         for i, year in enumerate(years)
     ]
 
+def get_owner_item(row, idx: int) -> str:
+    """
+    Accept owner row, idx.
+    Return stripped item at index idx.
+    """
+    return row.locator("td").nth(idx).text_content().strip()
 
-def run(playwright: Playwright, account: str) -> dict:
+def get_building_floor(tbody, floor) -> dict:
+    cells = tbody.get_by_role("row").filter(has_text=floor).get_by_role("cell")
+    return {
+        "base_sq_ft": cells.nth(1).text_content().strip(),
+        "finished_sq_ft": cells.nth(2).text_content().strip(),
+    }
+
+def get_structure(tbody, structure) -> dict:
+    cell = tbody.locator("tr").filter(has_text=structure).locator("td")
+    return {
+        "sq_ft": cell.text_content().strip(),
+    }
+
+def get_building_stat(rows, label: str, has_not_text=None) -> str:
+    """
+    Accept Commerical Building table rows, label, optional has_not_text.
+    Select row that matches label but not has_not_text.
+    Return that rows last cell's stripped text.
+    """
+    if has_not_text:
+        matches = rows.filter(has_text=label).filter(has_not_text=has_not_text)
+    else:
+        matches = rows.filter(has_text=label)
+    return matches.get_by_role("cell").last.text_content().strip()
+
+def get_owners(page, account: str) -> list:
+    """
+    Accept page, account.
+    Return a dict of owners information from that page.
+    """
+    logging.debug("%s: getting owner info", account)
+    page.get_by_role("button", name="View Owners").click()
+    page.get_by_text("Owner Information").wait_for()
+    owner_table = page \
+        .locator("table") \
+        .filter(has_text="Owner Address City State Zip")
+
+    owners = [
+        { 
+            "owner": get_owner_item(row, 0),
+            "address": get_owner_item(row, 1),
+            "city_state_zip": get_owner_item(row, 2),
+        }
+        for row in owner_table.locator("tr").all()[1:]
+    ]
+    account_type = page \
+        .locator("tbody") \
+        .locator("tbody") \
+        .locator("tr") \
+        .filter(has_text="Account Type") \
+        .locator("td") \
+        .last \
+        .text_content() \
+        .strip()
+
+    res_header = page.get_by_text("Residential Building")
+    if re.search(r"Residential Building\s*None", res_header.text_content()):
+        residential_building = {}
+    else:
+        year_tr = page.locator("table:below(:text(\"Residential\"))").locator("table").locator("tr", has_text="Year Built")
+        year_built = year_tr.locator("td").text_content().strip()
+
+        building_tbody = page.locator("table:below(:text(\"Residential\"))").locator("table").locator("tbody").filter(has_text="Floor")
+        floors = {
+            "basement": get_building_floor(building_tbody, "Basement"),
+            "first": get_building_floor(building_tbody, "First"),
+            "second": get_building_floor(building_tbody, "Second"),
+            "attic": get_building_floor(building_tbody, "Attic"),
+            "total": get_building_floor(building_tbody, "Total"),
+        }
+        structures_tbody = page.locator("table:below(:text(\"Residential\"))").locator("table").locator("tbody").filter(has_text="Structure")
+        structures = {
+            "basement_garage": get_structure(structures_tbody, "Bsmt Garage"),
+            "attached_garage": get_structure(structures_tbody, "Att Garage"),
+            "detached_garage": get_structure(structures_tbody, "Det Garage"),
+            "attached_carport": get_structure(structures_tbody, "Att Carport"),
+        }
+        print(floors)
+        print(structures)
+
+
+    try:
+        expect(page.get_by_text(re.compile(r"Commercial Building\s*None"))).to_be_visible()
+        commercial_improvements = []
+    except AssertionError:
+        commercial_header = page.get_by_text("Commercial Improvements")
+        building_headers = page \
+            .locator("h3:below(:text('Commercial Improvements'))") \
+            .filter(has_text=re.compile(f"Building\s")) \
+            .all()
+        for building in building_headers:
+            building_label = building.text_content()
+            desc = page.locator(f"h4:below(:text('{building_label}'))").first
+            tbody = page.locator(f"tbody:below(:text('{building_label}'))").first
+            stats, sq_ft = tbody.get_by_role("table").all()
+
+            stats_rows = stats.get_by_role("row")
+            sq_ft_rows = sq_ft.get_by_role("row")
+            building_stats = {
+                "year_built": get_building_stat(stats_rows, "Year Built", has_not_text="Effective"),
+                "effective_year_built": get_building_stat(stats_rows, "Effective Year Built"),
+                "grade": get_building_stat(stats_rows, "Grade"),
+                "floor_number": get_building_stat(stats_rows, "Floor Number"),
+                "wall_height_ft": get_building_stat(stats_rows, "Wall Height Ft"),
+                "occupancy_number": get_building_stat(stats_rows, "Occupancy Number"),
+                "sq_ft": sq_ft_rows.first.get_by_role("cell").last.text_content().strip(),
+                "fireproof_steel_sq_ft": get_building_stat(sq_ft_rows, "Fireproof Steel Sq Ft"),
+                "reinforced_concrete_sq_ft": get_building_stat(sq_ft_rows, "Reinforced Concrete Sq Ft"),
+                "fire_resistant_sq_ft": get_building_stat(sq_ft_rows, "Fire Resistant Sq Ft"),
+                "wood_joist_sq_ft": get_building_stat(sq_ft_rows, "Wood Joist Sq Ft"),
+                "pole_frame_sq_ft": get_building_stat(sq_ft_rows, "Pole Frame Sq Ft"),
+                "pre_engineered_steel_sq_ft": get_building_stat(sq_ft_rows, "Pre-engineered Steel Sq Ft"),
+            }
+            print(building_stats)
+
+
+
+        commercial_improvements = ["foo"]
+    print(commercial_improvements)
+
+
+
+
+
+    logging.debug("%s: got owner info", account)
+    return {}
+
+def run(playwright: Playwright, account: str, headless=True) -> dict:
     """
     Run playwright against account.
     Return a dict of lists of dicts: accounts, receipts, assessments.
     """
     logging.info("%s: scraping", account)
-    browser = playwright.chromium.launch(headless=True)
+    browser = playwright.chromium.launch(headless=headless)
     context = browser.new_context()
     # context.set_default_timeout(100_000)
     page = context.new_page()
@@ -233,10 +369,14 @@ def run(playwright: Playwright, account: str) -> dict:
         logging.error("%s: get account link timed out", account)
         return {}
 
-    account_info = get_account_info(page, account)
-    receipts = get_receipts(page, account)
-    assessments = get_assessments(page, account)
+#    account_info = get_account_info(page, account)
+#    receipts = get_receipts(page, account)
+#    assessments = get_assessments(page, account)
+    account_info = {}
+    receipts = []
+    assessments = []
 
+    owners = get_owners(page, account)
     logging.info("%s: scraped", account)
     return {
         "accounts": [account_info],
@@ -299,6 +439,7 @@ def main():
     read_file = args.read_file
     accounts = args.account
     dest = args.destination
+    headless = not args.no_headless
     if not (accounts or read_file):
         parser.error("we need a read-file or at least one account")
 
@@ -312,7 +453,7 @@ def main():
             print(account)
         else:
             with sync_playwright() as playwright:
-                result = run(playwright, account)
+                result = run(playwright, account, headless=headless)
                 if result:
                     for key, value in result.items():
                         write_csv(f"{key}.csv", value, dest=dest)
