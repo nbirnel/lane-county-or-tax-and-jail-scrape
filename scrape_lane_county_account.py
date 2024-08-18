@@ -319,7 +319,7 @@ def get_residential_building(page, taxlot) -> dict:
             manufactured_structure = page.get_by_text("Manufactured Structure")
             expect(manufactured_structure).to_be_visible()
             logging.warning("%s: manufactured building", taxlot)
-            tbody = page.locator(f"tbody:below(:text('Manufactured Structure'))").first
+            tbody = page.locator("tbody:below(:text('Manufactured Structure'))").first
             cells = tbody.locator("tr").last.locator("td")
             return {
                 "taxlot": taxlot,
@@ -421,7 +421,7 @@ def get_commercial_improvements(page, taxlot) -> list:
         ).to_be_visible()
         return []
     except AssertionError:
-        building_headers = page.locator(f"h4:below(:text('Commercial Improvements'))").all()
+        building_headers = page.locator("h4:below(:text('Commercial Improvements'))").all()
         return [
             get_commercial_building(page, building, taxlot)
             for building in building_headers
