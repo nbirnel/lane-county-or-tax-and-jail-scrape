@@ -263,9 +263,13 @@ def get_residential_building(page, taxlot) -> dict:
     page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a dict about any residential building described on the page.
     """
-    res_header = page.get_by_text("Residential Building")
-    if re.search(r"Residential Building\s*None", res_header.text_content()):
+    res_text = page.get_by_text("Residential Building").text_content().strip()
+    if re.search(r"Residential Building\s*None", res_text):
         return {}
+    # We do not know yet what mulitple Residential Buildings render as.
+    # Warn on them.
+    if not res_text.endswith("(of 1)"):
+        logging.warning("%s: %s", taxlot, res_text)
     year_tr = (
         page.locator('table:below(:text("Residential"))')
         .locator("table")
