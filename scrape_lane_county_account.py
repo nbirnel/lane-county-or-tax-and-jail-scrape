@@ -318,6 +318,8 @@ def get_residential_building(page, taxlot) -> dict:
         try:
             manufactured_structure = page.get_by_text("Manufactured Structure")
             expect(manufactured_structure).to_be_visible()
+            # We can scrape 1 manufactured home, whether it has data or not.
+            # We have not yet seen multiple manufactured homes, so warn on them.
             logging.warning("%s: manufactured building", taxlot)
             tbody = page.locator("tbody:below(:text('Manufactured Structure'))").first
             cells = tbody.locator("tr").last.locator("td")
