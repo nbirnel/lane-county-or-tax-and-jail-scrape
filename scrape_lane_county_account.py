@@ -9,9 +9,6 @@ from itertools import dropwhile
 import logging
 import re
 
-import sys
-from time import sleep
-
 from playwright.sync_api import (
     Playwright,
     expect,
@@ -98,8 +95,8 @@ def get_account_info(page, account) -> dict:
     site_address, site_city_state_zip = get_account_row(
         rows, "Situs Address", cleaner=clean_address_2
     )
-    m_address_1, m_address_2, m_address_3, m_city_state_zip = (
-        get_account_row(rows, "Mailing Address", cleaner=clean_address_4)
+    m_address_1, m_address_2, m_address_3, m_city_state_zip = get_account_row(
+        rows, "Mailing Address", cleaner=clean_address_4
     )
     logging.debug("%s: got account info", account)
     return {
@@ -216,6 +213,7 @@ def get_assessments(page, account) -> list:
         for i, year in enumerate(years)
     ]
 
+
 def get_owner_item(row, idx: int) -> str:
     """
     Accept owner row, idx.
@@ -223,32 +221,165 @@ def get_owner_item(row, idx: int) -> str:
     """
     return row.locator("td").nth(idx).text_content().strip()
 
+
 def get_building_floor(tbody, floor) -> dict:
-    cells = tbody.get_by_role("row").filter(has_text=floor).get_by_role("cell")
+    """
+    Accept tbody (residential floors table body), floor.
+    Return dict.
+    """
+    cells = (
+        tbody.get_by_role("row").filter(has_text=floor).get_by_role("cell")
+    )
     return {
         "base_sq_ft": cells.nth(1).text_content().strip(),
         "finished_sq_ft": cells.nth(2).text_content().strip(),
     }
 
+
 def get_structure(tbody, structure) -> dict:
+    """
+    Accept tbody (residential structures table body), structure.
+    Return dict.
+    """
     cell = tbody.locator("tr").filter(has_text=structure).locator("td")
     return {
         "sq_ft": cell.text_content().strip(),
     }
 
+
+def get_residential_building(page, account) -> dict:
+    """
+    Accept page.
+    Return a dict about any residential building described on the page.
+    """
+    res_header = page.get_by_text("Residential Building")
+    if re.search(r"Residential Building\s*None", res_header.text_content()):
+        return {}
+    year_tr = (
+        page.locator('table:below(:text("Residential"))')
+        .locator("table")
+        .locator("tr", has_text="Year Built")
+    )
+    year_built = year_tr.locator("td").text_content().strip()
+
+    building_tbody = (
+        page.locator('table:below(:text("Residential"))')
+        .locator("table")
+        .locator("tbody")
+        .filter(has_text="Floor")
+    )
+    floors = {
+        "basement": get_building_floor(building_tbody, "Basement"),
+        "first": get_building_floor(building_tbody, "First"),
+        "second": get_building_floor(building_tbody, "Second"),
+        "attic": get_building_floor(building_tbody, "Attic"),
+        "total": get_building_floor(building_tbody, "Total"),
+    }
+    structures_tbody = (
+        page.locator('table:below(:text("Residential"))')
+        .locator("table")
+        .locator("tbody")
+        .filter(has_text="Structure")
+    )
+    structures = {
+        "basement_garage": get_structure(structures_tbody, "Bsmt Garage"),
+        "attached_garage": get_structure(structures_tbody, "Att Garage"),
+        "detached_garage": get_structure(structures_tbody, "Det Garage"),
+        "attached_carport": get_structure(structures_tbody, "Att Carport"),
+    }
+    return {
+        "account": account,
+        "year_built": year_built,
+        "floors": floors,
+        "structures": structures,
+    }
+
+
 def get_building_stat(rows, label: str, has_not_text=None) -> str:
     """
-    Accept Commerical Building table rows, label, optional has_not_text.
+    Accept Commercial Building table rows, label, optional has_not_text.
     Select row that matches label but not has_not_text.
     Return that rows last cell's stripped text.
     """
     if has_not_text:
-        matches = rows.filter(has_text=label).filter(has_not_text=has_not_text)
+        matches = rows.filter(has_text=label).filter(
+            has_not_text=has_not_text
+        )
     else:
         matches = rows.filter(has_text=label)
     return matches.get_by_role("cell").last.text_content().strip()
 
-def get_owners(page, account: str) -> list:
+
+def get_commercial_building(page, building, account) -> dict:
+    """
+    Accept page, commercial building.
+    Return dict of information about the building.
+    """
+    building_label = building.text_content()
+    description = page.locator(
+        f"h4:below(:text('{building_label}'))"
+    ).first.text_content.strip()
+    tbody = page.locator(f"tbody:below(:text('{building_label}'))").first
+    stats, sq_ft = tbody.get_by_role("table").all()
+
+    stats_rows = stats.get_by_role("row")
+    sq_ft_rows = sq_ft.get_by_role("row")
+    return {
+        "account": account,
+        "description": description,
+        "year_built": get_building_stat(
+            stats_rows, "Year Built", has_not_text="Effective"
+        ),
+        "effective_year_built": get_building_stat(
+            stats_rows, "Effective Year Built"
+        ),
+        "grade": get_building_stat(stats_rows, "Grade"),
+        "floor_number": get_building_stat(stats_rows, "Floor Number"),
+        "wall_height_ft": get_building_stat(stats_rows, "Wall Height Ft"),
+        "occupancy_number": get_building_stat(stats_rows, "Occupancy Number"),
+        "sq_ft": sq_ft_rows.first.get_by_role("cell")
+        .last.text_content()
+        .strip(),
+        "fireproof_steel_sq_ft": get_building_stat(
+            sq_ft_rows, "Fireproof Steel Sq Ft"
+        ),
+        "reinforced_concrete_sq_ft": get_building_stat(
+            sq_ft_rows, "Reinforced Concrete Sq Ft"
+        ),
+        "fire_resistant_sq_ft": get_building_stat(
+            sq_ft_rows, "Fire Resistant Sq Ft"
+        ),
+        "wood_joist_sq_ft": get_building_stat(sq_ft_rows, "Wood Joist Sq Ft"),
+        "pole_frame_sq_ft": get_building_stat(sq_ft_rows, "Pole Frame Sq Ft"),
+        "pre_engineered_steel_sq_ft": get_building_stat(
+            sq_ft_rows, "Pre-engineered Steel Sq Ft"
+        ),
+    }
+
+
+def get_commercial_improvements(page, account) -> list:
+    """
+    Accept page.
+    Return a list of commercial improvements.
+    """
+    try:
+        expect(
+            page.get_by_text(re.compile(r"Commercial Building\s*None"))
+        ).to_be_visible()
+        return []
+    except AssertionError:
+        building_headers = (
+            page.locator("h3:below(:text('Commercial Improvements'))")
+            .filter(has_text=re.compile(r"Building\s"))
+            .all()
+        )
+        return [
+            get_commercial_building(page, building, account)
+            for building in building_headers
+        ]
+
+
+def get_owners_page(page, account: str) -> list:
     """
     Accept page, account.
     Return a dict of owners information from that page.
@@ -256,99 +387,39 @@ def get_owners(page, account: str) -> list:
     logging.debug("%s: getting owner info", account)
     page.get_by_role("button", name="View Owners").click()
     page.get_by_text("Owner Information").wait_for()
-    owner_table = page \
-        .locator("table") \
-        .filter(has_text="Owner Address City State Zip")
+    owner_table = page.locator("table").filter(
+        has_text="Owner Address City State Zip"
+    )
+
+    account_type = (
+        page.locator("tbody")
+        .locator("tbody")
+        .locator("tr")
+        .filter(has_text="Account Type")
+        .locator("td")
+        .last.text_content()
+        .strip()
+    )
 
     owners = [
-        { 
+        {
+            "account": account,
+            "account_type": account_type,
             "owner": get_owner_item(row, 0),
             "address": get_owner_item(row, 1),
             "city_state_zip": get_owner_item(row, 2),
         }
         for row in owner_table.locator("tr").all()[1:]
     ]
-    account_type = page \
-        .locator("tbody") \
-        .locator("tbody") \
-        .locator("tr") \
-        .filter(has_text="Account Type") \
-        .locator("td") \
-        .last \
-        .text_content() \
-        .strip()
-
-    res_header = page.get_by_text("Residential Building")
-    if re.search(r"Residential Building\s*None", res_header.text_content()):
-        residential_building = {}
-    else:
-        year_tr = page.locator("table:below(:text(\"Residential\"))").locator("table").locator("tr", has_text="Year Built")
-        year_built = year_tr.locator("td").text_content().strip()
-
-        building_tbody = page.locator("table:below(:text(\"Residential\"))").locator("table").locator("tbody").filter(has_text="Floor")
-        floors = {
-            "basement": get_building_floor(building_tbody, "Basement"),
-            "first": get_building_floor(building_tbody, "First"),
-            "second": get_building_floor(building_tbody, "Second"),
-            "attic": get_building_floor(building_tbody, "Attic"),
-            "total": get_building_floor(building_tbody, "Total"),
-        }
-        structures_tbody = page.locator("table:below(:text(\"Residential\"))").locator("table").locator("tbody").filter(has_text="Structure")
-        structures = {
-            "basement_garage": get_structure(structures_tbody, "Bsmt Garage"),
-            "attached_garage": get_structure(structures_tbody, "Att Garage"),
-            "detached_garage": get_structure(structures_tbody, "Det Garage"),
-            "attached_carport": get_structure(structures_tbody, "Att Carport"),
-        }
-        print(floors)
-        print(structures)
-
-
-    try:
-        expect(page.get_by_text(re.compile(r"Commercial Building\s*None"))).to_be_visible()
-        commercial_improvements = []
-    except AssertionError:
-        commercial_header = page.get_by_text("Commercial Improvements")
-        building_headers = page \
-            .locator("h3:below(:text('Commercial Improvements'))") \
-            .filter(has_text=re.compile(f"Building\s")) \
-            .all()
-        for building in building_headers:
-            building_label = building.text_content()
-            desc = page.locator(f"h4:below(:text('{building_label}'))").first
-            tbody = page.locator(f"tbody:below(:text('{building_label}'))").first
-            stats, sq_ft = tbody.get_by_role("table").all()
-
-            stats_rows = stats.get_by_role("row")
-            sq_ft_rows = sq_ft.get_by_role("row")
-            building_stats = {
-                "year_built": get_building_stat(stats_rows, "Year Built", has_not_text="Effective"),
-                "effective_year_built": get_building_stat(stats_rows, "Effective Year Built"),
-                "grade": get_building_stat(stats_rows, "Grade"),
-                "floor_number": get_building_stat(stats_rows, "Floor Number"),
-                "wall_height_ft": get_building_stat(stats_rows, "Wall Height Ft"),
-                "occupancy_number": get_building_stat(stats_rows, "Occupancy Number"),
-                "sq_ft": sq_ft_rows.first.get_by_role("cell").last.text_content().strip(),
-                "fireproof_steel_sq_ft": get_building_stat(sq_ft_rows, "Fireproof Steel Sq Ft"),
-                "reinforced_concrete_sq_ft": get_building_stat(sq_ft_rows, "Reinforced Concrete Sq Ft"),
-                "fire_resistant_sq_ft": get_building_stat(sq_ft_rows, "Fire Resistant Sq Ft"),
-                "wood_joist_sq_ft": get_building_stat(sq_ft_rows, "Wood Joist Sq Ft"),
-                "pole_frame_sq_ft": get_building_stat(sq_ft_rows, "Pole Frame Sq Ft"),
-                "pre_engineered_steel_sq_ft": get_building_stat(sq_ft_rows, "Pre-engineered Steel Sq Ft"),
-            }
-            print(building_stats)
-
-
-
-        commercial_improvements = ["foo"]
-    print(commercial_improvements)
-
-
-
-
-
+    residential_building = get_residential_building(page, account)
+    commercial_improvements = get_commercial_improvements(page, account)
     logging.debug("%s: got owner info", account)
-    return {}
+    return {
+        "owners": owners,
+        "residential_building": residential_building,
+        "commercial_improvements": commercial_improvements,
+    }
+
 
 def run(playwright: Playwright, account: str, headless=True) -> dict:
     """
@@ -369,19 +440,17 @@ def run(playwright: Playwright, account: str, headless=True) -> dict:
         logging.error("%s: get account link timed out", account)
         return {}
 
-#    account_info = get_account_info(page, account)
-#    receipts = get_receipts(page, account)
-#    assessments = get_assessments(page, account)
-    account_info = {}
-    receipts = []
-    assessments = []
+    account_info = get_account_info(page, account)
+    receipts = get_receipts(page, account)
+    assessments = get_assessments(page, account)
 
-    owners = get_owners(page, account)
+    owners = get_owners_page(page, account)
     logging.info("%s: scraped", account)
     return {
         "accounts": [account_info],
         "receipts": receipts,
         "assessments": assessments,
+        "owners": owners,
     }
 
 
@@ -456,7 +525,10 @@ def main():
                 result = run(playwright, account, headless=headless)
                 if result:
                     for key, value in result.items():
-                        write_csv(f"{key}.csv", value, dest=dest)
+                        if key == "owners":
+                            print(value)
+                        else:
+                            write_csv(f"{key}.csv", value, dest=dest)
 
 
 if __name__ == "__main__":
