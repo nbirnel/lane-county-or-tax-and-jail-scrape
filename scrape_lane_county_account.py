@@ -81,9 +81,11 @@ def get_account_row(rows, label: str, cleaner=strip):
         return ""
 
 
-def get_account_info(page, account) -> dict:
+def get_account_lot_payer_owner(page, account) -> dict:
     """
     Accept page, account.
+    page is https://apps.lanecounty.org/PropertyAccountInformation/#
+    with "search by Account number" and a single account line.
     Return a dict of account information from that page.
     """
     logging.debug("%s: getting account info", account)
@@ -132,6 +134,7 @@ def get_receipt_entry(row, idx: int, cleaner=strip):
 def get_receipts(page, account) -> list:
     """
     Accept page, account.
+    page is, eg https://apps.lanecounty.org/PropertyAccountInformation/Account/0259901.
     Return list of dicts of receipt information from page.
     """
     logging.debug("%s: getting receipts", account)
@@ -179,6 +182,7 @@ def get_assesments_row(rows, idx: int) -> list:
 def get_assessments(page, account) -> list:
     """
     Accept page, account.
+    page is, eg https://apps.lanecounty.org/PropertyAccountInformation/Account/0259901.
     Return list of dicts of assessment information from page.
     """
     logging.debug("%s: getting assessments", account)
@@ -236,20 +240,19 @@ def get_building_floor(tbody, floor) -> dict:
     }
 
 
-def get_structure(tbody, structure) -> dict:
+def get_structure(tbody, structure) -> str:
     """
     Accept tbody (residential structures table body), structure.
-    Return dict.
+    Return str of structure's square footage.
     """
     cell = tbody.locator("tr").filter(has_text=structure).locator("td")
-    return {
-        "sq_ft": cell.text_content().strip(),
-    }
+    return cell.text_content().strip()
 
 
-def get_residential_building(page, account) -> dict:
+def get_residential_building(page, taxlot) -> dict:
     """
     Accept page.
+    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a dict about any residential building described on the page.
     """
     res_header = page.get_by_text("Residential Building")
@@ -260,39 +263,53 @@ def get_residential_building(page, account) -> dict:
         .locator("table")
         .locator("tr", has_text="Year Built")
     )
-    year_built = year_tr.locator("td").text_content().strip()
-
-    building_tbody = (
-        page.locator('table:below(:text("Residential"))')
-        .locator("table")
-        .locator("tbody")
-        .filter(has_text="Floor")
-    )
-    floors = {
-        "basement": get_building_floor(building_tbody, "Basement"),
-        "first": get_building_floor(building_tbody, "First"),
-        "second": get_building_floor(building_tbody, "Second"),
-        "attic": get_building_floor(building_tbody, "Attic"),
-        "total": get_building_floor(building_tbody, "Total"),
-    }
-    structures_tbody = (
-        page.locator('table:below(:text("Residential"))')
-        .locator("table")
-        .locator("tbody")
-        .filter(has_text="Structure")
-    )
-    structures = {
-        "basement_garage": get_structure(structures_tbody, "Bsmt Garage"),
-        "attached_garage": get_structure(structures_tbody, "Att Garage"),
-        "detached_garage": get_structure(structures_tbody, "Det Garage"),
-        "attached_carport": get_structure(structures_tbody, "Att Carport"),
-    }
-    return {
-        "account": account,
-        "year_built": year_built,
-        "floors": floors,
-        "structures": structures,
-    }
+    try:
+        expect(year_tr).to_be_visible()
+        year_built = year_tr.locator("td").text_content().strip()
+        building_tbody = (
+            page.locator('table:below(:text("Residential"))')
+            .locator("table")
+            .locator("tbody")
+            .filter(has_text="Floor")
+        )
+        structures_tbody = (
+            page.locator('table:below(:text("Residential"))')
+            .locator("table")
+            .locator("tbody")
+            .filter(has_text="Structure")
+        )
+        basement_floor = get_building_floor(building_tbody, "Basement")
+        first_floor = get_building_floor(building_tbody, "First")
+        second_floor = get_building_floor(building_tbody, "Second")
+        attic_floor = get_building_floor(building_tbody, "Attic")
+        total_floor = get_building_floor(building_tbody, "Total")
+        return {
+            "taxlot": taxlot,
+            "year_built": year_built,
+            "basement_floor_base": basement_floor["base_sq_ft"],
+            "basement_floor_finished": basement_floor["finished_sq_ft"],
+            "first_floor_base": first_floor["base_sq_ft"],
+            "first_floor_finished": first_floor["finished_sq_ft"],
+            "second_floor_base": second_floor["base_sq_ft"],
+            "second_floor_finished": second_floor["finished_sq_ft"],
+            "attic_floor_base": attic_floor["base_sq_ft"],
+            "attic_floor_finished": attic_floor["finished_sq_ft"],
+            "total_floor_base": total_floor["base_sq_ft"],
+            "total_floor_finished": total_floor["finished_sq_ft"],
+            "basement_garage": get_structure(structures_tbody, "Bsmt Garage"),
+            "attached_garage": get_structure(structures_tbody, "Att Garage"),
+            "detached_garage": get_structure(structures_tbody, "Det Garage"),
+            "attached_carport": get_structure(structures_tbody, "Att Carport"),
+        }
+    except AssertionError:
+        try:
+            manufactured_structure = page.get_by_text("Manufactured Structure")
+            expect(manufactured_structure).to_be_visible()
+            logging.warning("%s: manufactured building", taxlot)
+            return {}
+        except AssertionError:
+            logging.error("%s: unknown residential building", taxlot)
+            return {}
 
 
 def get_building_stat(rows, label: str, has_not_text=None) -> str:
@@ -310,22 +327,25 @@ def get_building_stat(rows, label: str, has_not_text=None) -> str:
     return matches.get_by_role("cell").last.text_content().strip()
 
 
-def get_commercial_building(page, building, account) -> dict:
+def get_commercial_building(page, building, taxlot) -> dict:
     """
     Accept page, commercial building.
+    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return dict of information about the building.
     """
     building_label = building.text_content()
-    description = page.locator(
-        f"h4:below(:text('{building_label}'))"
-    ).first.text_content.strip()
+    description = (
+        page.locator(f"h4:below(:text('{building_label}'))")
+        .first.text_content()
+        .strip()
+    )
     tbody = page.locator(f"tbody:below(:text('{building_label}'))").first
     stats, sq_ft = tbody.get_by_role("table").all()
 
     stats_rows = stats.get_by_role("row")
     sq_ft_rows = sq_ft.get_by_role("row")
     return {
-        "account": account,
+        "taxlot": taxlot,
         "description": description,
         "year_built": get_building_stat(
             stats_rows, "Year Built", has_not_text="Effective"
@@ -357,9 +377,10 @@ def get_commercial_building(page, building, account) -> dict:
     }
 
 
-def get_commercial_improvements(page, account) -> list:
+def get_commercial_improvements(page, taxlot) -> list:
     """
     Accept page.
+    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a list of commercial improvements.
     """
     try:
@@ -374,19 +395,46 @@ def get_commercial_improvements(page, account) -> list:
             .all()
         )
         return [
-            get_commercial_building(page, building, account)
+            get_commercial_building(page, building, taxlot)
             for building in building_headers
         ]
 
 
-def get_owners_page(page, account: str) -> list:
+def get_taxlot_page(page, account: str) -> list:
     """
     Accept page, account.
+    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a dict of owners information from that page.
     """
     logging.debug("%s: getting owner info", account)
     page.get_by_role("button", name="View Owners").click()
     page.get_by_text("Owner Information").wait_for()
+
+    map_tax_s = "Map, Tax Lot & SIC "
+    taxlot = (
+        page.get_by_text(map_tax_s)
+        .last.text_content()
+        .removeprefix(map_tax_s)
+        .strip()
+        .replace("-", "")
+    )
+
+    additional_s = "Additional Account Numbers for this Tax Lot"
+    additional_accounts = [
+        account.strip()
+        for account in page.get_by_role("row")
+        .filter(has_text=additional_s)
+        .get_by_role("cell")
+        .last.text_content()
+        .strip()
+        .removeprefix(additional_s)
+        .split(";")
+    ]
+    if additional_accounts == [""]:
+        all_accounts = [account]
+    else:
+        all_accounts = [account] + additional_accounts
+
     owner_table = page.locator("table").filter(
         has_text="Owner Address City State Zip"
     )
@@ -401,6 +449,13 @@ def get_owners_page(page, account: str) -> list:
         .strip()
     )
 
+    taxlot_accounts = [
+        {
+            "account": acc,
+            "taxlot": taxlot,
+        }
+        for acc in all_accounts
+    ]
     owners = [
         {
             "account": account,
@@ -411,13 +466,14 @@ def get_owners_page(page, account: str) -> list:
         }
         for row in owner_table.locator("tr").all()[1:]
     ]
-    residential_building = get_residential_building(page, account)
-    commercial_improvements = get_commercial_improvements(page, account)
+    residential_building = get_residential_building(page, taxlot)
+    commercial_improvements = get_commercial_improvements(page, taxlot)
     logging.debug("%s: got owner info", account)
     return {
         "owners": owners,
-        "residential_building": residential_building,
+        "residential_building": [residential_building],
         "commercial_improvements": commercial_improvements,
+        "taxlot_accounts": taxlot_accounts,
     }
 
 
@@ -440,17 +496,20 @@ def run(playwright: Playwright, account: str, headless=True) -> dict:
         logging.error("%s: get account link timed out", account)
         return {}
 
-    account_info = get_account_info(page, account)
+    account_lot_payer_owner = get_account_lot_payer_owner(page, account)
     receipts = get_receipts(page, account)
     assessments = get_assessments(page, account)
 
-    owners = get_owners_page(page, account)
+    taxlot = get_taxlot_page(page, account)
     logging.info("%s: scraped", account)
     return {
-        "accounts": [account_info],
+        "account_lot_payer_owner": [account_lot_payer_owner],
         "receipts": receipts,
         "assessments": assessments,
-        "owners": owners,
+        "owners": taxlot["owners"],
+        "residential_buildings": taxlot["residential_building"],
+        "commercial_improvements": taxlot["commercial_improvements"],
+        "taxlot_accounts": taxlot["taxlot_accounts"],
     }
 
 
@@ -525,10 +584,7 @@ def main():
                 result = run(playwright, account, headless=headless)
                 if result:
                     for key, value in result.items():
-                        if key == "owners":
-                            print(value)
-                        else:
-                            write_csv(f"{key}.csv", value, dest=dest)
+                        write_csv(f"{key}.csv", value, dest=dest)
 
 
 if __name__ == "__main__":

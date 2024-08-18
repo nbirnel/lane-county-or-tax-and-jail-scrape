@@ -36,8 +36,10 @@ def write_csv(output, rows: iter, dest=""):
     """
     if not rows:
         return
-    logging.debug("writing %d lines to %s", len(rows), output)
     fieldnames = rows[0].keys()
+    if not fieldnames:
+        return
+    logging.debug("writing %d lines to %s", len(rows), output)
     if dest:
         os.makedirs(dest, exist_ok=True)
         output = os.path.join(dest, output)
