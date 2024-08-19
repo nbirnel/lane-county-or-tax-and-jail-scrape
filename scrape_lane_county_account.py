@@ -8,6 +8,7 @@ from decimal import Decimal
 from itertools import dropwhile
 import logging
 import re
+import sys
 
 from playwright.sync_api import (
     Playwright,
@@ -93,7 +94,6 @@ def get_account_lot_payer_owner(page, account) -> dict:
         has=page.get_by_text("Account Information")
     )
     rows = account_div.locator("tbody").locator("tr")
-    # This failed on 0173839
     site_address, site_city_state_zip = get_account_row(
         rows, "Situs Address", cleaner=clean_address_2
     )
@@ -141,7 +141,6 @@ def get_receipts(page, account) -> list:
     receipts_table = page.locator("table").filter(
         has=page.get_by_text("Amount Received")
     )
-    # Some accounts have
     try:
         rows = receipts_table.locator("tbody").locator("tr").all()
         receipts = [
@@ -257,40 +256,44 @@ def get_manufactured_home_item(cells, idx: int) -> str:
     return cells.nth(idx).text_content().strip()
 
 
+def get_residential_text(page) -> str:
+    """
+    Accept page.
+    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
+    Return the string of the "Residential Building" line.
+    """
+    return page.get_by_text("Residential Building").text_content().strip()
+
+
 def get_residential_building(page, taxlot) -> dict:
     """
     Accept page.
     page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a dict about any residential building described on the page.
     """
-    res_text = page.get_by_text("Residential Building").text_content().strip()
+    res_text = get_residential_text(page)
     if re.search(r"Residential Building\s*None", res_text):
         return {}
-    # We do not know yet what mulitple Residential Buildings render as.
+    # We do not have a way of getting information on additional buildings
+    # after the first.
     # Warn on them.
     if not res_text.endswith("(of 1)"):
         logging.warning("%s: %s", taxlot, res_text)
-    year_tr = (
-        page.locator('table:below(:text("Residential"))')
-        .locator("table")
-        .locator("tr", has_text="Year Built")
-        .first
-    )
+    res_supertable = page.locator(
+        f"table:below(:text('{res_text}'))"
+    ).locator("table")
+
+    year_tr = res_supertable.locator("tr", has_text="Year Built").first
     try:
         expect(year_tr).to_be_visible()
         year_built = year_tr.locator("td").text_content().strip()
-        building_tbody = (
-            page.locator('table:below(:text("Residential"))')
-            .locator("table")
-            .locator("tbody")
-            .filter(has_text="Floor")
+        building_tbody = res_supertable.locator("tbody").filter(
+            has_text="Floor"
         )
-        structures_tbody = (
-            page.locator('table:below(:text("Residential"))')
-            .locator("table")
-            .locator("tbody")
-            .filter(has_text="Structure")
+        structures_tbody = res_supertable.locator("tbody").filter(
+            has_text="Structure"
         )
+
         basement_floor = get_building_floor(building_tbody, "Basement")
         first_floor = get_building_floor(building_tbody, "First")
         second_floor = get_building_floor(building_tbody, "Second")
@@ -312,7 +315,9 @@ def get_residential_building(page, taxlot) -> dict:
             "basement_garage": get_structure(structures_tbody, "Bsmt Garage"),
             "attached_garage": get_structure(structures_tbody, "Att Garage"),
             "detached_garage": get_structure(structures_tbody, "Det Garage"),
-            "attached_carport": get_structure(structures_tbody, "Att Carport"),
+            "attached_carport": get_structure(
+                structures_tbody, "Att Carport"
+            ),
             "manufactured": "false",
             "manufactured_model_year": "N/A",
             "manufactured_make": "N/A",
@@ -321,16 +326,20 @@ def get_residential_building(page, taxlot) -> dict:
         }
     except AssertionError:
         try:
-            manufactured_structure = page.get_by_text("Manufactured Structure")
+            manufactured_structure = page.get_by_text(
+                "Manufactured Structure"
+            )
             expect(manufactured_structure).to_be_visible()
             # We can scrape 1 manufactured home, whether it has data or not.
             # We have not yet seen multiple manufactured homes, so warn on them.
             logging.warning("%s: manufactured building", taxlot)
-            tbody = page.locator("tbody:below(:text('Manufactured Structure'))").first
+            tbody = page.locator(
+                "tbody:below(:text('Manufactured Structure'))"
+            ).first
             cells = tbody.locator("tr").last.locator("td")
             return {
                 "taxlot": taxlot,
-                "year_built": 'N/A',
+                "year_built": "N/A",
                 "basement_floor_base": "N/A",
                 "basement_floor_finished": "N/A",
                 "first_floor_base": "N/A",
@@ -346,7 +355,9 @@ def get_residential_building(page, taxlot) -> dict:
                 "detached_garage": "N/A",
                 "attached_carport": "N/A",
                 "manufactured": "true",
-                "manufactured_model_year": get_manufactured_home_item(cells, 0),
+                "manufactured_model_year": get_manufactured_home_item(
+                    cells, 0
+                ),
                 "manufactured_make": get_manufactured_home_item(cells, 1),
                 "manufactured_plate": get_manufactured_home_item(cells, 2),
                 "manufactured_lois": get_manufactured_home_item(cells, 3),
@@ -371,16 +382,12 @@ def get_building_stat(rows, label: str, has_not_text=None) -> str:
     return matches.get_by_role("cell").last.text_content().strip()
 
 
-def get_commercial_building(page, building, taxlot) -> dict:
+def get_commercial_building(description, table, taxlot) -> dict:
     """
-    Accept page, commercial building.
-    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
+    Accept description, table, taxlot.
     Return dict of information about the building.
     """
-    description = building.text_content().strip()
-    tbody = page.locator(f"tbody:below(:text('{description}'))").first
-    stats, sq_ft = tbody.get_by_role("table").all()
-
+    stats, sq_ft = table.get_by_role("table").all()
     stats_rows = stats.get_by_role("row")
     sq_ft_rows = sq_ft.get_by_role("row")
     return {
@@ -422,17 +429,28 @@ def get_commercial_improvements(page, taxlot) -> list:
     page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a list of commercial improvements.
     """
-    try:
-        expect(
-            page.get_by_text(re.compile(r"Commercial Building\s*None"))
-        ).to_be_visible()
+    res_text = get_residential_text(page)
+    commercial_text = (
+        page.locator(f"h3:below(:text('{res_text}'))", has_text="Commercial")
+        .text_content()
+        .strip()
+    )
+    if re.match(r"Commercial Building\s*None", commercial_text):
         return []
-    except AssertionError:
-        building_headers = page.locator("h4:below(:text('Commercial Improvements'))").all()
-        return [
-            get_commercial_building(page, building, taxlot)
-            for building in building_headers
-        ]
+
+    building_elems = [
+        {
+            "label": header.text_content().strip(),
+            "table": header.locator('xpath=following::table[1]'),
+        }
+        for header in page.locator(
+            f"h4:below(:text('{commercial_text}'))"
+        ).all()
+    ]
+    return [
+        get_commercial_building(building["label"], building["table"], taxlot)
+        for building in building_elems
+    ]
 
 
 def get_taxlot_page(page, account: str) -> list:
