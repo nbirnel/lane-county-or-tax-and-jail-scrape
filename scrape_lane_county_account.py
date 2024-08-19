@@ -8,7 +8,6 @@ from decimal import Decimal
 from itertools import dropwhile
 import logging
 import re
-import sys
 
 from playwright.sync_api import (
     Playwright,
@@ -430,22 +429,40 @@ def get_commercial_improvements(page, taxlot) -> list:
     Return a list of commercial improvements.
     """
     res_text = get_residential_text(page)
-    commercial_text = (
-        page.locator(f"h3:below(:text('{res_text}'))", has_text="Commercial")
-        .text_content()
-        .strip()
-    )
-    if re.match(r"Commercial Building\s*None", commercial_text):
+
+    commercial_elems = [
+        {
+            "text": header.text_content().strip(),
+            "header": header,
+        }
+        for header in page.locator(
+            f"h3:below(:text('{res_text}'))", has_text="Commercial"
+        ).all()
+    ]
+
+    commercial_header = None
+    for elem in commercial_elems:
+        if elem["text"] == "Commercial Improvements":
+            commercial_header = elem["header"]
+            break
+        if re.match(r"Commercial Building\s*None", elem["text"]):
+            return []
+
+    if commercial_header is None:
+        texts = ";".join([e["text"] for e in commercial_elems])
+        logging.error(
+            "%s: something wrong with commercial improvements: %s",
+            taxlot,
+            texts,
+        )
         return []
 
     building_elems = [
         {
             "label": header.text_content().strip(),
-            "table": header.locator('xpath=following::table[1]'),
+            "table": header.locator("xpath=following::table[1]"),
         }
-        for header in page.locator(
-            f"h4:below(:text('{commercial_text}'))"
-        ).all()
+        for header in commercial_header.locator("xpath=following::h4").all()
     ]
     return [
         get_commercial_building(building["label"], building["table"], taxlot)
