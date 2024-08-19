@@ -470,6 +470,7 @@ def get_taxlot_page(page, account: str) -> list:
         .removeprefix(map_tax_s)
         .strip()
         .replace("-", "")
+        .replace(" ", "")
     )
 
     additional_s = "Additional Account Numbers for this Tax Lot"
