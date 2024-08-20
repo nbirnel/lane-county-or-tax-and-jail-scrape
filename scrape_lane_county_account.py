@@ -272,6 +272,7 @@ def get_residential_building(page, taxlot) -> dict:
     """
     res_text = get_residential_text(page)
     if re.search(r"Residential Building\s*None", res_text):
+        logging.debug("%s: No residential buildings", taxlot)
         return {}
     # We do not have a way of getting information on additional buildings
     # after the first.
@@ -282,6 +283,7 @@ def get_residential_building(page, taxlot) -> dict:
         f"table:below(:text('{res_text}'))"
     ).locator("table")
 
+    logging.debug("%s: looking for residential structure", taxlot)
     year_tr = res_supertable.locator("tr", has_text="Year Built").first
     try:
         expect(year_tr).to_be_visible()
@@ -323,7 +325,9 @@ def get_residential_building(page, taxlot) -> dict:
             "manufactured_plate": "N/A",
             "manufactured_lois": "N/A",
         }
-    except AssertionError:
+    except (AssertionError, PlaywrightTimeoutError) as error:
+        logging.warning("%s: residential not found: %s", taxlot, error)
+        logging.debug("%s: looking for manufactured structure", taxlot)
         try:
             manufactured_structure = page.get_by_text(
                 "Manufactured Structure"
@@ -430,6 +434,7 @@ def get_commercial_improvements(page, taxlot) -> list:
     """
     res_text = get_residential_text(page)
 
+    logging.debug("%s: looking for commercial improvements", taxlot)
     commercial_elems = [
         {
             "text": header.text_content().strip(),
@@ -446,6 +451,7 @@ def get_commercial_improvements(page, taxlot) -> list:
             commercial_header = elem["header"]
             break
         if re.match(r"Commercial Building\s*None", elem["text"]):
+            logging.debug("%s: No commercial buildings", taxlot)
             return []
 
     if commercial_header is None:
@@ -464,6 +470,8 @@ def get_commercial_improvements(page, taxlot) -> list:
         }
         for header in commercial_header.locator("xpath=following::h4").all()
     ]
+    logging.debug("%s: Finding %d commercial buildings", taxlot, len(building_elems))
+
     return [
         get_commercial_building(building["label"], building["table"], taxlot)
         for building in building_elems
