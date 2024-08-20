@@ -59,7 +59,7 @@ def clean_money(dollars: str) -> Decimal:
     # -$12.01 is ($12.01)
     m = re.match(r"\((\$[0-9.]+)\)", prestripped)
     if m:
-        prestripped = m.groups[0]
+        prestripped = m.groups()[0]
         sign = -1
     else:
         sign = 1
