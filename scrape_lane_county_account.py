@@ -159,6 +159,7 @@ def get_receipts(page, account) -> list:
         logging.info("%s: no receipts info", account)
         try:
             receipts_table.get_by_text("No records to display").click()
+            logging.info("%s: No records to display", account)
             receipts = []
         except PlaywrightTimeoutError as exc:
             logging.error("%s: Did not see 'No records to display'", account)
