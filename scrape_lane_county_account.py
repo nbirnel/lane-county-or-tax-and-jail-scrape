@@ -5,9 +5,11 @@ https://apps.lanecounty.org/PropertyAccountInformation/
 
 import argparse
 from decimal import Decimal
+from functools import wraps
 from itertools import dropwhile
 import logging
 import re
+from time import sleep
 
 from playwright.sync_api import (
     Playwright,
@@ -17,6 +19,32 @@ from playwright.sync_api import (
 )
 
 from lcapps import strip, write_csv, configure_logging, get_parser, log_name
+
+
+def retry(times_to_retry=5):
+    """
+    Decorate a function to retry
+    """
+    def decorate(func):
+        @wraps(func)
+        def wrapper(*args, n_tries=0, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                if (n_tries := n_tries+1) > times_to_retry:
+                    raise
+                logging.warning(
+                    "%s: will sleep %d before retry %d",
+                    func.__name__,
+                    sleep_duration := n_tries**3,
+                    n_tries,
+                )
+                sleep(sleep_duration)
+                return wrapper(*args, n_tries=n_tries, **kwargs)
+
+        return wrapper
+
+    return decorate
 
 
 def clean_address_2(address: str) -> tuple:
@@ -471,7 +499,9 @@ def get_commercial_improvements(page, taxlot) -> list:
         }
         for header in commercial_header.locator("xpath=following::h4").all()
     ]
-    logging.debug("%s: Finding %d commercial buildings", taxlot, len(building_elems))
+    logging.debug(
+        "%s: Finding %d commercial buildings", taxlot, len(building_elems)
+    )
 
     return [
         get_commercial_building(building["label"], building["table"], taxlot)
@@ -557,6 +587,7 @@ def get_taxlot_page(page, account: str) -> list:
     }
 
 
+@retry()
 def run(playwright: Playwright, account: str, headless=True) -> dict:
     """
     Run playwright against account.
