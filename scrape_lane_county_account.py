@@ -23,18 +23,28 @@ from lcapps import strip, write_csv, configure_logging, get_parser, log_name
 
 def retry(times_to_retry=5):
     """
-    Decorate a function to retry
+    Decorate a function to retry.
+    Back off by number of retries cubed seconds each time,
+    eg: 1, 8, 27, 64...
     """
+
     def decorate(func):
         @wraps(func)
         def wrapper(*args, n_tries=0, **kwargs):
             try:
                 return func(*args, **kwargs)
             except Exception:
-                if (n_tries := n_tries+1) > times_to_retry:
+                if (n_tries := n_tries + 1) > times_to_retry:
+                    logging.error(
+                        "%s failed after %d tries with args %s and kwargs %s",
+                        func.__name__,
+                        times_to_retry,
+                        args,
+                        kwargs,
+                    )
                     raise
                 logging.warning(
-                    "%s: will sleep %d before retry %d",
+                    "%s: will sleep %d seconds before retry %d",
                     func.__name__,
                     sleep_duration := n_tries**3,
                     n_tries,
@@ -519,7 +529,9 @@ def get_taxlot_page(page, account: str) -> dict:
     page.get_by_role("button", name="View Owners").click()
 
     # This should always appear
-    page.get_by_text("using Regional Land Information Database, https://www.rlid.org/").wait_for()
+    page.get_by_text(
+        "using Regional Land Information Database, https://www.rlid.org/"
+    ).wait_for()
     # This will only appear if there is info to return
     try:
         page.get_by_text("Owner Information").wait_for()
@@ -531,7 +543,6 @@ def get_taxlot_page(page, account: str) -> dict:
             "commercial_improvements": [],
             "taxlot_accounts": [],
         }
-
 
     map_tax_s = "Map, Tax Lot & SIC "
     taxlot = (
