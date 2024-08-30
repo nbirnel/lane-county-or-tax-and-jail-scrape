@@ -178,6 +178,9 @@ def get_receipts(page, account) -> list:
     receipts_table = page.locator("table").filter(
         has=page.get_by_text("Amount Received")
     )
+    if "No records to display" in receipts_table.text_content():
+        logging.info("%s: No records to display", account)
+        return []
     try:
         rows = receipts_table.locator("tbody").locator("tr").all()
         receipts = [
@@ -194,14 +197,8 @@ def get_receipts(page, account) -> list:
             for row in rows
         ]
     except PlaywrightTimeoutError:
-        logging.info("%s: no receipts info", account)
-        try:
-            receipts_table.get_by_text("No records to display").click()
-            logging.info("%s: No records to display", account)
-            receipts = []
-        except PlaywrightTimeoutError as exc:
-            logging.error("%s: Did not see 'No records to display'", account)
-            raise ValueError("Did not see 'No records to display'") from exc
+        logging.error("%s: unable to find receipts", account)
+        raise ValueError("Unable to find receipts")
     logging.debug("%s: got receipts", account)
     return receipts
 
