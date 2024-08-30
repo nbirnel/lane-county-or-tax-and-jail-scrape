@@ -527,15 +527,11 @@ def get_taxlot_page(page, account: str) -> dict:
     """
     logging.debug("%s: getting owner info", account)
     page.get_by_role("button", name="View Owners").click()
+    page.wait_for_url("https://www.rlid.org/custom/lc/at/index.cfm**")
+    page.wait_for_load_state()
+    title = page.title()
 
-    # This should always appear
-    page.get_by_text(
-        "using Regional Land Information Database, https://www.rlid.org/"
-    ).wait_for()
-    # This will only appear if there is info to return
-    try:
-        page.get_by_text("Owner Information").wait_for()
-    except PlaywrightTimeoutError:
+    if title == "Lane County Assessment and Taxation Lane County A & T Property Search":
         logging.warning("%s: no Account Information", account)
         return {
             "owners": [],
@@ -543,6 +539,9 @@ def get_taxlot_page(page, account: str) -> dict:
             "commercial_improvements": [],
             "taxlot_accounts": [],
         }
+    if title != "Lane County Assessment and Taxation Prop Info Report":
+        logging.error("%s: unknown page title: %s", account, title)
+        raise ValueError
 
     map_tax_s = "Map, Tax Lot & SIC "
     taxlot = (
