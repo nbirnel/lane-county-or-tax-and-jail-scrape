@@ -509,7 +509,7 @@ def get_commercial_improvements(page, taxlot) -> list:
     ]
 
 
-def get_taxlot_page(page, account: str) -> list:
+def get_taxlot_page(page, account: str) -> dict:
     """
     Accept page, account.
     page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
@@ -517,7 +517,21 @@ def get_taxlot_page(page, account: str) -> list:
     """
     logging.debug("%s: getting owner info", account)
     page.get_by_role("button", name="View Owners").click()
-    page.get_by_text("Owner Information").wait_for()
+
+    # This should always appear
+    page.get_by_text("using Regional Land Information Database, https://www.rlid.org/").wait_for()
+    # This will only appear if there is info to return
+    try:
+        page.get_by_text("Owner Information").wait_for()
+    except PlaywrightTimeoutError:
+        logging.warning("%s: no Account Information", account)
+        return {
+            "owners": [],
+            "residential_building": [],
+            "commercial_improvements": [],
+            "taxlot_accounts": [],
+        }
+
 
     map_tax_s = "Map, Tax Lot & SIC "
     taxlot = (
@@ -605,7 +619,7 @@ def run(playwright: Playwright, account: str, headless=True) -> dict:
         page.get_by_role("link", name=account).first.click()
     except PlaywrightTimeoutError:
         logging.error("%s: get account link timed out", account)
-        return {}
+        raise
 
     account_lot_payer_owner = get_account_lot_payer_owner(page, account)
     receipts = get_receipts(page, account)
