@@ -18,7 +18,7 @@ from lcapps import (
     retry,
 )
 
-INMATE_INFORMATION = "http://inmateinformation.lanecounty.org/"
+INMATE_INFORMATION = "http://inmateinformation.lanecounty.org"
 SEARCH_DETAIL = f"{INMATE_INFORMATION}/Home/BookingSearchDetail"
 SEARCH_RESULT = f"{INMATE_INFORMATION}/Home/BookingSearchResult"
 
@@ -45,6 +45,7 @@ def get_booking(row, context) -> dict:
     page.goto(url)
     page.wait_for_url(url)
     page.wait_for_load_state()
+    logging.debug("get_booking on %s", page.url)
 
     results = {
         "booking_number": extract_field(page, "Booking Number:"),
@@ -59,7 +60,7 @@ def get_booking(row, context) -> dict:
         "eyes": extract_field(page, "Eyes:"),
         "height": extract_field(page, "Height:"),
         "weight": extract_field(page, "Weight:"),
-        "charges": extract_field(page, "Charges:", role="heading"),
+        "n_charges": int(extract_field(page, "Charges:", role="heading")),
     }
     page.close()
     return results
@@ -120,6 +121,7 @@ def get_paginated(page, context) -> list:
 
 def get_page(page, context) -> list:
     page.wait_for_load_state()
+    logging.debug("get_page on %s", page.url)
     tbody = page.locator("tbody").first
     rows = tbody.get_by_role("row").all()
     return [get_booking(row, context) for row in rows]
@@ -134,7 +136,7 @@ def run(playwright: Playwright, headless=True) -> list:
     browser = playwright.chromium.launch(headless=headless)
     context = browser.new_context()
     page = context.new_page()
-    page.goto("http://inmateinformation.lanecounty.org/")
+    page.goto(f"{INMATE_INFORMATION}/")
     page.get_by_role("link", name="Access Site").click()
     page.get_by_label("Last Name").fill("%")
     page.get_by_label("Last Name").press("Tab")
