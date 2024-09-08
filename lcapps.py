@@ -1,8 +1,46 @@
 import argparse
 import csv
+from functools import wraps
 import logging
 import os
 import re
+from time import sleep
+
+
+def retry(times_to_retry=5):
+    """
+    Decorate a function to retry.
+    Back off by number of retries cubed seconds each time,
+    eg: 1, 8, 27, 64...
+    """
+
+    def decorate(func):
+        @wraps(func)
+        def wrapper(*args, n_tries=0, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                if (n_tries := n_tries + 1) > times_to_retry:
+                    logging.error(
+                        "%s failed after %d tries with args %s and kwargs %s",
+                        func.__name__,
+                        times_to_retry,
+                        args,
+                        kwargs,
+                    )
+                    raise
+                logging.warning(
+                    "%s: will sleep %d seconds before retry %d",
+                    func.__name__,
+                    sleep_duration := n_tries**3,
+                    n_tries,
+                )
+                sleep(sleep_duration)
+                return wrapper(*args, n_tries=n_tries, **kwargs)
+
+        return wrapper
+
+    return decorate
 
 
 def configure_logging(filename, level="WARN"):

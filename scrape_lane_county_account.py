@@ -5,11 +5,8 @@ https://apps.lanecounty.org/PropertyAccountInformation/
 
 import argparse
 from decimal import Decimal
-from functools import wraps
 from itertools import dropwhile
-import logging
 import re
-from time import sleep
 
 from playwright.sync_api import (
     Playwright,
@@ -18,43 +15,15 @@ from playwright.sync_api import (
     TimeoutError as PlaywrightTimeoutError,
 )
 
-from lcapps import strip, write_csv, configure_logging, get_parser, log_name
-
-
-def retry(times_to_retry=5):
-    """
-    Decorate a function to retry.
-    Back off by number of retries cubed seconds each time,
-    eg: 1, 8, 27, 64...
-    """
-
-    def decorate(func):
-        @wraps(func)
-        def wrapper(*args, n_tries=0, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception:
-                if (n_tries := n_tries + 1) > times_to_retry:
-                    logging.error(
-                        "%s failed after %d tries with args %s and kwargs %s",
-                        func.__name__,
-                        times_to_retry,
-                        args,
-                        kwargs,
-                    )
-                    raise
-                logging.warning(
-                    "%s: will sleep %d seconds before retry %d",
-                    func.__name__,
-                    sleep_duration := n_tries**3,
-                    n_tries,
-                )
-                sleep(sleep_duration)
-                return wrapper(*args, n_tries=n_tries, **kwargs)
-
-        return wrapper
-
-    return decorate
+from lcapps import (
+    configure_logging,
+    get_parser,
+    logging,
+    log_name,
+    retry,
+    strip,
+    write_csv,
+)
 
 
 def clean_address_2(address: str) -> tuple:
@@ -196,9 +165,9 @@ def get_receipts(page, account) -> list:
             }
             for row in rows
         ]
-    except PlaywrightTimeoutError:
+    except PlaywrightTimeoutError as error:
         logging.error("%s: unable to find receipts", account)
-        raise ValueError("Unable to find receipts")
+        raise ValueError("Unable to find receipts") from error
     logging.debug("%s: got receipts", account)
     return receipts
 
@@ -294,7 +263,8 @@ def get_manufactured_home_item(cells, idx: int) -> str:
 def get_residential_text(page) -> str:
     """
     Accept page.
-    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
+    page is, e.g.,
+    https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return the string of the "Residential Building" line.
     """
     return page.get_by_text("Residential Building").text_content().strip()
@@ -303,7 +273,8 @@ def get_residential_text(page) -> str:
 def get_residential_building(page, taxlot) -> dict:
     """
     Accept page.
-    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
+    page is, e.g., 
+    https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a dict about any residential building described on the page.
     """
     res_text = get_residential_text(page)
@@ -465,7 +436,8 @@ def get_commercial_building(description, table, taxlot) -> dict:
 def get_commercial_improvements(page, taxlot) -> list:
     """
     Accept page.
-    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
+    page is, e.g., 
+    https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a list of commercial improvements.
     """
     res_text = get_residential_text(page)
@@ -519,7 +491,8 @@ def get_commercial_improvements(page, taxlot) -> list:
 def get_taxlot_page(page, account: str) -> dict:
     """
     Accept page, account.
-    page is, e.g., https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
+    page is, e.g.,
+    https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a dict of owners information from that page.
     """
     logging.debug("%s: getting owner info", account)
@@ -528,7 +501,10 @@ def get_taxlot_page(page, account: str) -> dict:
     page.wait_for_load_state()
     title = page.title()
 
-    if title == "Lane County Assessment and Taxation Lane County A & T Property Search":
+    if (
+        title
+        == "Lane County Assessment and Taxation Lane County A & T Property Search"
+    ):
         logging.warning("%s: no Account Information", account)
         return {
             "owners": [],

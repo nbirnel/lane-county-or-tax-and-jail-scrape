@@ -1,12 +1,19 @@
 import argparse
 from itertools import chain
-import logging
 import re
 from time import sleep
 
 from playwright.sync_api import Playwright, sync_playwright
 
-from lcapps import strip, configure_logging, write_csv, get_parser, log_name
+from lcapps import (
+    configure_logging,
+    get_parser,
+    logging,
+    log_name,
+    strip,
+    write_csv,
+)
+
 import sections
 
 
@@ -139,6 +146,9 @@ def custom_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    """
+    parse args, set up logging, and scrape.
+    """
     parser = custom_parser()
     args = parser.parse_args()
 
