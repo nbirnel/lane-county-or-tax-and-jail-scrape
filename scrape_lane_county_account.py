@@ -139,7 +139,7 @@ def get_account_lot_payer_owner(page, account) -> dict:
     )
     logging.debug("%s: got account info", account)
     return {
-        "account_number": get_account_row(rows, "Account Number"),
+        "account_number": account,
         "related_to_accounts": get_account_row(
             rows, "Related to Account(s)", cleaner=clean_more
         ),
