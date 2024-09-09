@@ -1,9 +1,9 @@
+#!/usr/bin/env python3
 """
 Scrape account information from
 https://apps.lanecounty.org/PropertyAccountInformation/
 """
 
-import argparse
 from decimal import Decimal
 from itertools import dropwhile
 import re
@@ -16,6 +16,7 @@ from playwright.sync_api import (
 )
 
 from lcapps import (
+    argparse,
     configure_logging,
     get_parser,
     logging,
