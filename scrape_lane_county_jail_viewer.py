@@ -34,7 +34,9 @@ Filter = namedtuple(
 EMPTY_FILTER = Filter("%", "%", None, None)
 
 
-def extract_field(locator, prefix: str, role="cell", index=None, regex=None) -> str:
+def extract_field(
+    locator, prefix: str, role="cell", index=None, regex=None
+) -> str:
     """
     Accept a Playwright locator,
     a prefix to strip (and by default to search for),
@@ -145,7 +147,18 @@ def get_booking(row, context) -> dict:
     inmate_id = extract_field(page, "Inmate ID:")
     n_charges = int(extract_field(page, "Charges:", role="heading"))
     charges = get_charges(page, inmate_id, booking_number)
-    assert n_charges == len(charges)
+    found_charges = len(charges)
+    try:
+        assert n_charges == found_charges
+    except AssertionError:
+        logging.error(
+            "booking ID: %s expected %d charges, got %d",
+            booking_id,
+            n_charges,
+            found_charges,
+        )
+        raise
+    logging.info("booking ID: %s has %d charges", booking_id, n_charges)
 
     results = {
         "booking_number": booking_number,
@@ -236,6 +249,7 @@ def run(playwright: Playwright, headless=True, filters=EMPTY_FILTER) -> list:
     n_candidates = int(
         extract_field(page, "Total Candidates:", role="heading")
     )
+    logging.info("expect %d candidates", n_candidates)
     if n_candidates > 15:
         results = get_paginated(page, context)
     else:
