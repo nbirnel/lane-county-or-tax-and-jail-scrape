@@ -320,7 +320,11 @@ def main():
         results = run(playwright, headless=headless, filters=filters)
 
         bookings = [
-            {k: v for k, v in result.items() if k != "charges"}
+            {
+                k: v
+                for k, v in result.items()
+                if k not in ["charges", "in_custody_as_of"]
+            }
             for result in results
         ]
         write_csv("bookings.csv", bookings)
