@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Scrape account information from
-https://apps.lanecounty.org/PropertyAccountInformation/
+Scrape information from
+http://inmateinformation.lanecounty.org
 """
 
 from collections import namedtuple

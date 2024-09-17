@@ -274,7 +274,7 @@ def get_residential_text(page) -> str:
 def get_residential_building(page, taxlot) -> dict:
     """
     Accept page.
-    page is, e.g., 
+    page is, e.g.,
     https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a dict about any residential building described on the page.
     """
@@ -437,7 +437,7 @@ def get_commercial_building(description, table, taxlot) -> dict:
 def get_commercial_improvements(page, taxlot) -> list:
     """
     Accept page.
-    page is, e.g., 
+    page is, e.g.,
     https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
     Return a list of commercial improvements.
     """

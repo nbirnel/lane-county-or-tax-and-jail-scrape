@@ -1,3 +1,7 @@
+"""
+Helper functions for scraping Lane County, OR informational pages.
+"""
+
 import argparse
 import csv
 from functools import wraps

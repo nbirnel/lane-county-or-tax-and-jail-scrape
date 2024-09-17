@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+Scrape information from
+https://apps.lanecounty.org/PropertyAccountInformation/
+"""
+
 import argparse
 from itertools import chain
 import re
