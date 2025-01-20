@@ -14,6 +14,7 @@ from playwright.sync_api import Playwright, sync_playwright
 from lcapps import (
     configure_logging,
     get_parser,
+    load_file,
     logging,
     log_name,
     strip,
@@ -73,7 +74,7 @@ def search(page, prefix: int) -> list:
     Return a list of dicts.
     """
     logging.info("%d", prefix)
-    page.get_by_placeholder("Enter partial map and taxlot").fill(str(prefix))
+    page.get_by_placeholder("Enter partial ").fill(str(prefix))
     page.get_by_role("button", name="Save Search").click()
     sleep(4)
     page.get_by_label("select").locator("span").click()
@@ -112,7 +113,7 @@ def search(page, prefix: int) -> list:
     raise ValueError(message)
 
 
-def run(playwright: Playwright, prefix: int, headless=True) -> list:
+def run(playwright: Playwright, prefix: int, headless=True, **kwargs) -> list:
     """
     Run playwrite
     """
@@ -122,7 +123,7 @@ def run(playwright: Playwright, prefix: int, headless=True) -> list:
     page = context.new_page()
     page.goto("https://apps.lanecounty.org/PropertyAccountInformation/#")
     page.get_by_role("button", name="Search by Account Number").click()
-    page.get_by_role("menuitem", name="Search by Map and Taxlot").click()
+    page.get_by_role("menuitem", name=search_by).click()
     return search(page, prefix)
 
 
@@ -141,6 +142,12 @@ def custom_parser() -> argparse.ArgumentParser:
             },
         },
         {
+            "args": ["-n", "--read-names"],
+            "kwargs": {
+                "help": "File to read names from",
+            },
+        },
+        {
             "args": ["-o", "--output"],
             "kwargs": {
                 "help": "File to write results to.",
@@ -155,22 +162,35 @@ def main():
     """
     parse args, set up logging, and scrape.
     """
+
     parser = custom_parser()
     args = parser.parse_args()
 
     configure_logging(args.log, args.log_level)
 
-    for section in sections.cities[args.city]:
+    read_names = args.read_names
+    city = args.city
+    if city:
+        searches = sections.cities[city]
+        search_by = "Search by Map and Taxlot"
+    elif read_names:
+        searches = load_file(read_names)
+        search_by = "Search by Name"
+    else:
+        parser.error("we need a read-names file or at a city")
+
+    for search_f in searches:
         if args.dry_run:
-            print(section)
+            print(search_f)
         else:
             with sync_playwright() as playwright:
-                results = run(playwright, section)
+                results = run(playwright, search_f, search_by)
                 if (number_of_results := len(results)) >= 1:
                     write_csv(args.output, results)
                 logging.info(
-                    "%d SECTION: %d total items found",
-                    section,
+                    "%s search by %s: %d total items found",
+                    search_f,
+                    search_by,
                     number_of_results,
                 )
 

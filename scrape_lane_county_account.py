@@ -19,6 +19,7 @@ from lcapps import (
     argparse,
     configure_logging,
     get_parser,
+    load_file,
     logging,
     log_name,
     retry,
@@ -622,16 +623,6 @@ def run(playwright: Playwright, account: str, headless=True) -> dict:
     }
 
 
-def load_file(read) -> list:
-    """
-    Accept read (file to be read).
-    Return as a list of stripped non-empty lines.
-    """
-    logging.info("reading %s", read)
-    with open(read, "r", encoding="utf8") as source:
-        return [line.strip() for line in source if line.strip()]
-
-
 def custom_parser() -> argparse.ArgumentParser:
     """
     Return a parser for this script.
@@ -673,6 +664,7 @@ def main():
     args = parser.parse_args()
 
     configure_logging(args.log, args.log_level)
+
     read_file = args.read_file
     accounts = args.account
     dest = args.destination
