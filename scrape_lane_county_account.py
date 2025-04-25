@@ -58,11 +58,7 @@ def clean_more(entry: str) -> str:
     return strip(entry).removesuffix("More...").strip()
 
 
-def clean_money(dollars: str) -> Decimal:
-    """
-    Accept dollars (str).
-    Return as a 100th precision Decimal.
-    """
+def _clean_money(dollars: str) -> str:
     prestripped = dollars.strip()
     # negative amounts are represented with parentheses around them:
     # -$12.01 is ($12.01)
@@ -73,8 +69,25 @@ def clean_money(dollars: str) -> Decimal:
     else:
         sign = 1
 
-    cleaned = prestripped.strip().lstrip("$").replace(",", "")
+    return prestripped.strip().lstrip("$").replace(",", ""), sign
+
+
+def clean_money(dollars: str) -> Decimal:
+    """
+    Accept dollars (str).
+    Return as a 100th precision Decimal.
+    """
+    cleaned, sign = _clean_money(dollars)
     return Decimal(cleaned).quantize(Decimal("1.00")) * sign
+
+
+def clean_dollars(dollars: str) -> int:
+    """
+    Accept dollars (str).
+    Return as an int
+    """
+    cleaned, sign = _clean_money(dollars)
+    return int(cleaned) * sign
 
 
 def get_account_row(rows, label: str, cleaner=strip):
@@ -378,7 +391,8 @@ def get_residential_building(page, taxlot) -> dict:
             logging.error("%s: unknown residential building", taxlot)
             return {}
 
-def get_property_value(page, taxlot) -> dict:
+
+def get_property_value(page, account, taxlot) -> dict:
     """
     Accept page.
     page is, e.g.,
@@ -389,10 +403,22 @@ def get_property_value(page, taxlot) -> dict:
     * Improvement
     * Total
     """
-    tbody = page.locator("tbody").filter(
-        has_text="Real Market Value (RMV)"
-    )
-    logging.debug("%s: found RMV %s", taxlot, tbody.text_content().strip())
+    logging.debug("%s: getting property value info", account)
+    tbody = page.locator("tbody").filter(has_text="Real Market Value (RMV)")
+    rows = tbody.locator("tr")
+    values = rows.nth(2)  # past the header and the column headers
+    logging.debug("%s: got property value info", account)
+    return {
+        "taxlot": taxlot,
+        "assessment_year": get_receipt_entry(values, 0, cleaner=strip),
+        "land_real_market_value": get_receipt_entry(
+            values, 1, cleaner=clean_dollars
+        ),
+        "improvement_real_market_value": get_receipt_entry(
+            values, 2, cleaner=clean_dollars
+        ),
+    }
+
 
 def get_building_stat(rows, label: str, has_not_text=None) -> str:
     """
@@ -590,7 +616,7 @@ def get_taxlot_page(page, account: str) -> dict:
         }
         for row in owner_table.locator("tr").all()[1:]
     ]
-    property_value = get_property_value(page)
+    property_value = get_property_value(page, account, taxlot)
     residential_building = get_residential_building(page, taxlot)
     commercial_improvements = get_commercial_improvements(page, taxlot)
     logging.debug("%s: got owner info", account)
@@ -599,6 +625,7 @@ def get_taxlot_page(page, account: str) -> dict:
         "residential_building": [residential_building],
         "commercial_improvements": commercial_improvements,
         "taxlot_accounts": taxlot_accounts,
+        "property_value": [property_value],
     }
 
 
@@ -636,6 +663,7 @@ def run(playwright: Playwright, account: str, headless=True) -> dict:
         "residential_buildings": taxlot["residential_building"],
         "commercial_improvements": taxlot["commercial_improvements"],
         "taxlot_accounts": taxlot["taxlot_accounts"],
+        "property_value": taxlot["property_value"],
     }
 
 
