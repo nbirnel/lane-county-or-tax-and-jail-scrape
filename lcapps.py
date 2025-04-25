@@ -23,7 +23,7 @@ def retry(times_to_retry=5):
         def wrapper(*args, n_tries=0, **kwargs):
             try:
                 return func(*args, **kwargs)
-            except Exception:
+            except Exception as err:
                 if (n_tries := n_tries + 1) > times_to_retry:
                     logging.error(
                         "%s failed after %d tries with args %s and kwargs %s",
@@ -34,8 +34,9 @@ def retry(times_to_retry=5):
                     )
                     raise
                 logging.warning(
-                    "%s: will sleep %d seconds before retry %d",
+                    "%s: error %s: will sleep %d seconds before retry %d",
                     func.__name__,
+                    err,
                     sleep_duration := n_tries**3,
                     n_tries,
                 )
