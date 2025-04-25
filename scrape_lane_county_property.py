@@ -117,6 +117,7 @@ def run(playwright: Playwright, prefix: int, headless=True, **kwargs) -> list:
     """
     Run playwrite
     """
+    search_by=kwargs['search_by']
     browser = playwright.chromium.launch(headless=headless)
     context = browser.new_context()
     context.set_default_timeout(100_000)
@@ -170,21 +171,22 @@ def main():
 
     read_names = args.read_names
     city = args.city
-    if city:
-        searches = sections.cities[city]
-        search_by = "Search by Map and Taxlot"
-    elif read_names:
+    if read_names:
         searches = load_file(read_names)
         search_by = "Search by Name"
+    elif city:
+        searches = sections.cities[city]
+        search_by = "Search by Map and Taxlot"
     else:
         parser.error("we need a read-names file or at a city")
+    print(args)
 
     for search_f in searches:
         if args.dry_run:
             print(search_f)
         else:
             with sync_playwright() as playwright:
-                results = run(playwright, search_f, search_by)
+                results = run(playwright, search_f, search_by=search_by)
                 if (number_of_results := len(results)) >= 1:
                     write_csv(args.output, results)
                 logging.info(

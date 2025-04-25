@@ -139,6 +139,16 @@ def get_parser(*args, **kwargs) -> argparse.ArgumentParser:
     return parser
 
 
+def load_file(read) -> list:
+    """
+    Accept read (file to be read).
+    Return as a list of stripped non-empty lines.
+    """
+    logging.info("reading %s", read)
+    with open(read, "r", encoding="utf8") as source:
+        return [line.strip() for line in source if line.strip()]
+
+
 def log_name(script):
     """
     Accept script (path).
