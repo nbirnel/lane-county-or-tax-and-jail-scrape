@@ -378,6 +378,21 @@ def get_residential_building(page, taxlot) -> dict:
             logging.error("%s: unknown residential building", taxlot)
             return {}
 
+def get_property_value(page, taxlot) -> dict:
+    """
+    Accept page.
+    page is, e.g.,
+    https://www.rlid.org/custom/lc/at/index.cfm?do=custom_LC_AT_propsearch.directqry&type=report&acctint=0259901
+    Return a dict of Real Market Value for that page:
+    * Year
+    * Land
+    * Improvement
+    * Total
+    """
+    tbody = page.locator("tbody").filter(
+        has_text="Real Market Value (RMV)"
+    )
+    logging.debug("%s: found RMV %s", taxlot, tbody.text_content().strip())
 
 def get_building_stat(rows, label: str, has_not_text=None) -> str:
     """
@@ -575,6 +590,7 @@ def get_taxlot_page(page, account: str) -> dict:
         }
         for row in owner_table.locator("tr").all()[1:]
     ]
+    property_value = get_property_value(page)
     residential_building = get_residential_building(page, taxlot)
     commercial_improvements = get_commercial_improvements(page, taxlot)
     logging.debug("%s: got owner info", account)
