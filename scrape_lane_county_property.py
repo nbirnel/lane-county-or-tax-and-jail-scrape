@@ -107,6 +107,7 @@ def search(page, prefix: int) -> list:
             )
             logging.error(message)
             raise ValueError(message)
+        logging.debug("%d: %d items scraped", prefix, n_scraped)
         return scraped
     message = f"{prefix}: something weird with items found: {items_found}"
     logging.error(message)
@@ -143,9 +144,16 @@ def custom_parser() -> argparse.ArgumentParser:
             },
         },
         {
+            "args": ["-r", "--read-file"],
+            "kwargs": {
+                "help": "File to read tax maps from. Overrides -c",
+                "default": None,
+            },
+        },
+        {
             "args": ["-n", "--read-names"],
             "kwargs": {
-                "help": "File to read names from",
+                "help": "File to read names from. Overrides -c, -f",
             },
         },
         {
@@ -169,16 +177,21 @@ def main():
 
     configure_logging(args.log, args.log_level)
 
-    read_names = args.read_names
     city = args.city
+    read_file = args.read_file
+    read_names = args.read_names
+
     if read_names:
         searches = load_file(read_names)
         search_by = "Search by Name"
+    elif read_file:
+        searches = [ int(i) for i in load_file(read_file) ]
+        search_by = "Search by Map and Taxlot"
     elif city:
         searches = sections.cities[city]
         search_by = "Search by Map and Taxlot"
     else:
-        parser.error("we need a read-names file or at a city")
+        parser.error("we need one of -c, -r, or -n")
     print(args)
 
     for search_f in searches:
