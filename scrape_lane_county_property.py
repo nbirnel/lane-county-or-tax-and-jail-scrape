@@ -119,6 +119,7 @@ def run(playwright: Playwright, prefix: int, headless=True, **kwargs) -> list:
     Run playwrite
     """
     search_by = kwargs["search_by"]
+    logging.info("%s: scraping", prefix)
     browser = playwright.chromium.launch(headless=headless)
     context = browser.new_context()
     context.set_default_timeout(100_000)

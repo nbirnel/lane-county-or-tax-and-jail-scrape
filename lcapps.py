@@ -32,7 +32,7 @@ def retry(times_to_retry=5):
                         args,
                         kwargs,
                     )
-                    raise
+                    return None
                 logging.warning(
                     "%s: error %s: will sleep %d seconds before retry %d",
                     func.__name__,

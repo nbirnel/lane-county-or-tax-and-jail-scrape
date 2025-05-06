@@ -7,6 +7,7 @@ https://apps.lanecounty.org/PropertyAccountInformation/
 from decimal import Decimal
 from itertools import dropwhile
 import re
+from time import sleep
 
 from playwright.sync_api import (
     Playwright,
@@ -146,7 +147,7 @@ def get_account_lot_payer_owner(page, account) -> dict:
 
 def get_receipt_entry(row, idx: int, cleaner=strip):
     """
-    Accept row, idx (int), optional cleaner (default strip).
+    Accept row, zero-based idx (int), optional cleaner (default strip).
     Return cleaned text from the index idx of row.
     """
     return cleaner(row.locator("td").nth(idx).text_content())
@@ -620,6 +621,7 @@ def get_taxlot_page(page, account: str) -> dict:
     residential_building = get_residential_building(page, taxlot)
     commercial_improvements = get_commercial_improvements(page, taxlot)
     logging.debug("%s: got owner info", account)
+    page.go_back()
     return {
         "owners": owners,
         "residential_building": [residential_building],
@@ -629,24 +631,15 @@ def get_taxlot_page(page, account: str) -> dict:
     }
 
 
-@retry()
-def run(playwright: Playwright, account: str, headless=True) -> dict:
-    """
-    Run playwright against account.
-    Return a dict of lists of dicts: accounts, receipts, assessments.
-    """
-    logging.info("%s: scraping", account)
-    browser = playwright.chromium.launch(headless=headless)
-    context = browser.new_context()
-    # context.set_default_timeout(100_000)
-    page = context.new_page()
-    page.goto("https://apps.lanecounty.org/PropertyAccountInformation/")
-    page.get_by_placeholder("Enter partial account #").fill(account)
-    page.get_by_role("button", name="Save Search").click()
+def get_account(page, row) -> dict:
+    cell = row.locator('td').nth(1)
+    link = cell.get_by_role('link').first
+    account = link.text_content().strip()
+    logging.info('%s: Found account', account)
     try:
-        page.get_by_role("link", name=account).first.click()
+        link.click()
     except PlaywrightTimeoutError:
-        logging.error("%s: get account link timed out", account)
+        logging.error("%s: get link timed out", search)
         raise
 
     account_lot_payer_owner = get_account_lot_payer_owner(page, account)
@@ -655,6 +648,7 @@ def run(playwright: Playwright, account: str, headless=True) -> dict:
 
     taxlot = get_taxlot_page(page, account)
     logging.info("%s: scraped", account)
+    page.go_back()
     return {
         "account_lot_payer_owner": [account_lot_payer_owner],
         "receipts": receipts,
@@ -667,6 +661,35 @@ def run(playwright: Playwright, account: str, headless=True) -> dict:
     }
 
 
+@retry(1)
+def run(playwright: Playwright, search: str, headless=True, **kwargs) -> dict:
+    """
+    Run playwright against search.
+    Return a dict of lists of dicts: accounts, receipts, assessments.
+    """
+    search_by = kwargs["search_by"]
+    logging.info("%s: scraping", search)
+    browser = playwright.chromium.launch(headless=headless)
+    context = browser.new_context()
+    context.set_default_timeout(100_000)
+    page = context.new_page()
+    page.goto("https://apps.lanecounty.org/PropertyAccountInformation/")
+    page.get_by_role("button", name="Search by Account Number").click()
+    page.get_by_role("menuitem", name=search_by).click()
+    page.get_by_placeholder("Enter partial ").fill(search)
+    page.get_by_role("button", name="Save Search").click()
+
+
+    #row = page.locator('tr').filter(has_text=search)
+    tbody = page.locator('tbody').filter(has_text=search)
+    page.wait_for_load_state()
+    sleep(1)
+    rows = tbody.locator('tr').all()
+    logging.debug('%s: found %d accounts', search, len(rows))
+
+    return [ get_account(page, row) for row in rows ]
+
+
 def custom_parser() -> argparse.ArgumentParser:
     """
     Return a parser for this script.
@@ -674,15 +697,28 @@ def custom_parser() -> argparse.ArgumentParser:
     log = log_name(__file__)
     arguments = [
         {
-            "args": ["-r", "--read-file"],
+            "args": ["-A", "--accounts-file"],
             "kwargs": {
                 "help": "File to read accounts from.",
             },
         },
         {
-            "args": ["-a", "--account"],
+            "args": ["-a", "--accounts"],
             "kwargs": {
-                "help": "Account to fetch.",
+                "help": "Accounts to fetch.",
+                "nargs": "*",
+            },
+        },
+        {
+            "args": ["-T", "--taxlots-file"],
+            "kwargs": {
+                "help": "File to read taxlots from.",
+            },
+        },
+        {
+            "args": ["-t", "--taxlots"],
+            "kwargs": {
+                "help": "Taxlots to fetch.",
                 "nargs": "*",
             },
         },
@@ -709,27 +745,42 @@ def main():
 
     configure_logging(args.log, args.log_level)
 
-    read_file = args.read_file
-    accounts = args.account
+    accounts_file = args.accounts_file
+    accounts = args.accounts
+    taxlots_file = args.taxlots_file
+    taxlots = args.taxlots
     dest = args.destination
     headless = not args.no_headless
-    if not (accounts or read_file):
-        parser.error("we need a read-file or at least one account")
 
-    if not accounts:
-        accounts = []
-    if read_file:
-        accounts += load_file(read_file)
+    if accounts_file:
+        searches = load_file(accounts_file)
+        search_by = "Search by Account"
+    elif accounts:
+        searches = accounts
+        search_by = "Search by Account"
+    elif taxlots_file:
+        searches = load_file(taxlots_file)
+        search_by = "Search by Map and Taxlot"
+    elif taxlots:
+        searches = taxlots
+        search_by = "Search by Map and Taxlot"
+    else:
+        parser.error("we need one of -A, -a, -T, or -t")
 
-    for account in accounts:
+    print(args)
+
+    for search in searches:
         if args.dry_run:
-            print(account)
+            print(search)
         else:
             with sync_playwright() as playwright:
-                result = run(playwright, account, headless=headless)
-                if result:
-                    for key, value in result.items():
-                        write_csv(f"{key}.csv", value, dest=dest)
+                results = run(
+                    playwright, search, search_by=search_by, headless=headless
+                )
+                if results:
+                    for result in results:
+                        for key, value in result.items():
+                            write_csv(f"{key}.csv", value, dest=dest)
 
 
 if __name__ == "__main__":
